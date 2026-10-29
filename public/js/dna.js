@@ -339,7 +339,7 @@ export function profile(name, dna) {
     habit = t * 0.5 + Math.min(1, water * 1.6) * 0.3 + dna.atmosphere * 0.2;
     if (dna.type === 'toxic') habit *= 0.55;
   }
-  const pop = dna.civ > 0 ? dna.civ ** 3 * 24e9 + 2e6 : 0;
+  const pop = dna.civ > 0.12 ? dna.civ ** 3 * 24e9 + 2e6 : 0;
   const atmo = {
     terran: 'N₂ 77% · O₂ 21% · Ar 1%', ocean: 'N₂ 71% · O₂ 26% · H₂O 3%', desert: 'CO₂ 62% · N₂ 33% · Ar 5%',
     ice: 'N₂ 88% · CH₄ 8% · Ne 4%', lava: 'SO₂ 54% · CO₂ 40% · H₂S 6%', gas: 'H₂ 86% · He 13% · CH₄ 1%',
