@@ -3,7 +3,7 @@
 Listed in build order. Each step depends on the ones above it.
 
 ## 1. MariaDB support
-- [ ] **(You)** Run `db/setup.sql` on the Galera cluster (10.10.20.120) with two generated passwords, then add `DB_PASSWORD` and `DB_MIGRATE_PASSWORD` to the Portainer stack env
+- [x] Live on MariaDB/Galera (`cosmonym` database at 10.10.20.120) since 2026-10-28, with least-privilege app and migration accounts
 - [x] Tables `worlds`, `stars`, `schema_version` with automatic migrations (`users`, `sessions`, `reports`, `audit_log` come with their features)
 - [x] Storage layer `lib/store.js`: MariaDB in production, JSON file as fallback; claims, stars and edits each write single rows
 - [x] Automatic one-time import from `/data/worlds.json` on first MariaDB start (tested: worlds, stars, views)
