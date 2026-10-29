@@ -97,6 +97,7 @@ function setMode(mode) {
   bloom.threshold = inGalaxy ? 0.55 : 0.9;
   bloom.radius = inGalaxy ? 0.7 : 0.55;
   $('#navExplore').style.visibility = mode === 'explore' ? 'hidden' : 'visible';
+  $('#navLeaders').style.visibility = mode === 'leaders' ? 'hidden' : 'visible';
   if (mode !== 'explore') { $('#hoverLabel').classList.remove('on'); galaxy.setHover(null); }
   if (inGalaxy) audio.setMood('galaxy');
   updateViewOffset();
@@ -151,6 +152,7 @@ async function route() {
   }
   const u = p.match(/^\/u\/([a-z0-9-]{1,32})/);
   if (u) return showProfile(u[1]);
+  if (p === '/leaderboards') return showLeaders();
   const target = p === '/explore' ? 'explore' : 'home';
   if (S.mode === 'world') await returnToGalaxy(target);
   else if (S.mode !== target) enterGalaxyMode(target);
@@ -237,6 +239,7 @@ async function openWorld(id, nameHint, { fly = false } = {}) {
   planetControls.target.set(0, 0, 0);
   S.flight = { cam: planetCam, controls: planetControls, from: planetCam.position.clone(), to: new THREE.Vector3(0.7, 0.55, w.dna.rings > 0.01 ? 6.4 : 4.6).multiplyScalar(Math.max(1, 0.8 / planetCam.aspect)), fromT: new THREE.Vector3(), toT: new THREE.Vector3(), t: 0, dur: 5.5 };
   runFormingCaptions(w.dna);
+  if (w.owner && w.record && !w.record.hasCard) setTimeout(() => { if (S.world === w) uploadCard(); }, 7000);
   setTimeout(() => audio.chime('form'), 950);
   document.title = `${w.name} · COSMONYM`;
 }
@@ -460,6 +463,7 @@ $('#claimBtn').onclick = async () => {
       const res = await api.send('PUT', '/api/world/' + w.id, { token: S.tokens[w.id], dna: w.dna });
       w.record = res.world; w.dirty = false; renderActions(); renderDossier(false);
       toast('✦ Changes saved to the galaxy');
+      setTimeout(uploadCard, 600);
       audio.chime('star');
     } catch (e) { toast(esc(e.message)); }
   }
@@ -506,6 +510,7 @@ $('#claimForm').addEventListener('submit', async e => {
     audio.chime('claim');
     planet.pulse();
     toast(`✦ <b>${esc(w.name)}</b> is yours. It now shines in the galaxy for everyone.`, 4800);
+    setTimeout(uploadCard, 1800);
   } catch (err) {
     if (err.status === 409 && err.body?.world) {
       closeClaim();
@@ -536,59 +541,120 @@ function shareUrl() {
   const w = S.world;
   return location.origin + '/w/' + w.id + (w.record ? '' : '?n=' + encodeURIComponent(w.name));
 }
-$('#shareBtn').onclick = async () => {
+const SHARE_TARGETS = [
+  ['x', 'X', (u, t) => `https://x.com/intent/post?text=${t}&url=${u}`],
+  ['facebook', 'Facebook', u => `https://www.facebook.com/sharer/sharer.php?u=${u}`],
+  ['reddit', 'Reddit', (u, t, title) => `https://www.reddit.com/submit?url=${u}&title=${title}`],
+  ['whatsapp', 'WhatsApp', (u, t) => `https://wa.me/?text=${t}%20${u}`],
+  ['telegram', 'Telegram', (u, t) => `https://t.me/share/url?url=${u}&text=${t}`],
+  ['bluesky', 'Bluesky', (u, t) => `https://bsky.app/intent/compose?text=${t}%20${u}`],
+  ['threads', 'Threads', (u, t) => `https://www.threads.net/intent/post?text=${t}%20${u}`],
+  ['linkedin', 'LinkedIn', u => `https://www.linkedin.com/sharing/share-offsite/?url=${u}`],
+  ['email', 'Email', (u, t, title) => `mailto:?subject=${title}&body=${t}%0A%0A${u}`],
+];
+const SHARE_ICON = {
+  x: '<path d="M17.5 3h3.1l-6.8 7.8L21.8 21h-6.2l-4.9-6.4L5 21H1.9l7.3-8.3L1.6 3H8l4.4 5.8L17.5 3zm-1.1 16.2h1.7L7.2 4.7H5.4l11 14.5z"/>',
+  facebook: '<path d="M14 8.5V6.6c0-.9.6-1.1 1-1.1h2.6V1.6L14 1.6c-3.9 0-4.8 2.9-4.8 4.8v2.1H6.9v4h2.3V22H14v-9.5h3.2l.4-4H14z"/>',
+  reddit: '<path d="M22 12.1a2.2 2.2 0 0 0-3.8-1.5 10.8 10.8 0 0 0-5.8-1.8l1-4.6 3.2.7a1.6 1.6 0 1 0 .2-.9l-3.6-.8a.5.5 0 0 0-.6.4l-1.1 5.2a10.8 10.8 0 0 0-5.9 1.8A2.2 2.2 0 1 0 3.2 14a4.3 4.3 0 0 0 0 .7c0 3.5 4 6.3 8.9 6.3s8.9-2.8 8.9-6.3a4.3 4.3 0 0 0 0-.7 2.2 2.2 0 0 0 1-1.9zM7.1 13.6a1.6 1.6 0 1 1 1.6 1.6 1.6 1.6 0 0 1-1.6-1.6zm9 4.2a5.9 5.9 0 0 1-4.1 1.2 5.9 5.9 0 0 1-4.1-1.2.4.4 0 0 1 .6-.6 5.1 5.1 0 0 0 3.5 1 5.1 5.1 0 0 0 3.5-1 .4.4 0 0 1 .6.6zm-.3-2.6a1.6 1.6 0 1 1 1.6-1.6 1.6 1.6 0 0 1-1.6 1.6z"/>',
+  whatsapp: '<path d="M17.5 14.4c-.3-.1-1.7-.8-2-.9s-.5-.1-.7.1-.8 1-.9 1.2-.3.2-.6.1a8 8 0 0 1-2.4-1.5 9 9 0 0 1-1.6-2c-.2-.3 0-.5.1-.6l.4-.5.3-.5a.5.5 0 0 0 0-.5l-.9-2.2c-.2-.6-.5-.5-.7-.5h-.6a1.1 1.1 0 0 0-.8.4 3.4 3.4 0 0 0-1.1 2.5 5.9 5.9 0 0 0 1.2 3.1 13.4 13.4 0 0 0 5.2 4.6c1.9.8 2.7.9 3.6.7a3.1 3.1 0 0 0 2-1.4 2.5 2.5 0 0 0 .2-1.4c-.1-.1-.3-.2-.6-.3zM12 21.8a9.8 9.8 0 0 1-5-1.4l-.4-.2-3.7 1 1-3.6-.2-.4A9.8 9.8 0 1 1 12 21.8zm8.4-18.2A11.8 11.8 0 0 0 1.8 17.8L.1 24l6.4-1.7a11.8 11.8 0 0 0 5.6 1.4 11.8 11.8 0 0 0 8.3-20.1z"/>',
+  telegram: '<path d="M21.9 3.6 18.7 19c-.2 1-.9 1.3-1.8.8l-4.9-3.6-2.4 2.3c-.3.3-.5.5-1 .5l.3-5 9.1-8.2c.4-.4-.1-.6-.6-.2L6.3 12.6 1.5 11.1c-1-.3-1-1 .2-1.5L20.6 2.3c.9-.3 1.6.2 1.3 1.3z"/>',
+  bluesky: '<path d="M5.2 3.3C7.7 5.2 10.4 9 11.4 11c1-2 3.7-5.8 6.2-7.7 1.8-1.4 4.7-2.4 4.7.9 0 .7-.4 5.5-.6 6.3-.8 2.8-3.6 3.5-6.1 3 4.4.8 5.5 3.2 3.1 5.7-4.6 4.7-6.6-1.2-7.1-2.7l-.2-.5-.2.5c-.5 1.5-2.5 7.4-7.1 2.7-2.4-2.5-1.3-4.9 3.1-5.7-2.5.5-5.3-.2-6.1-3C1.1 9.7.7 4.9.7 4.2c0-3.3 2.9-2.3 4.5-.9z"/>',
+  threads: '<path d="M17.4 11.1l-.4-.2c-.2-3.7-2.2-5.8-5.6-5.8-2 0-3.7.9-4.7 2.4l1.9 1.3c.7-1.1 1.9-1.4 2.8-1.4 1.1 0 2 .3 2.5.9.4.5.7 1.1.8 1.9a14 14 0 0 0-3.2-.2c-3.2.2-5.2 2-5.1 4.5.1 1.3.7 2.4 1.8 3.1a5.5 5.5 0 0 0 3.3.8 4.9 4.9 0 0 0 3.8-1.8 6.9 6.9 0 0 0 1.3-3.3 4 4 0 0 1 1.7 1.8 4.6 4.6 0 0 1-1.1 5.1c-1.4 1.4-3.1 2-5.6 2-2.8 0-4.9-.9-6.3-2.7-1.3-1.6-1.9-4-2-7 0-3 .7-5.4 2-7C6.9 3.9 9 3 11.8 3s5 .9 6.4 2.7c.7.9 1.2 2 1.6 3.3l2.2-.6c-.5-1.6-1.2-3-2.1-4.1C18 2 15.3.8 11.8.8 8.3.8 5.6 2 3.8 4.3 2.2 6.3 1.4 9.1 1.4 12.5s.8 6.3 2.4 8.3c1.8 2.3 4.5 3.4 8 3.4 3.1 0 5.3-.8 7.1-2.6a6.9 6.9 0 0 0 1.6-7.6 6.1 6.1 0 0 0-3.1-2.9zm-5.1 6.4c-1.3.1-2.6-.5-2.7-1.6-.1-.8.6-1.8 2.8-1.9h.7a10 10 0 0 1 2.1.2c-.2 3-1.6 3.2-2.9 3.3z"/>',
+  linkedin: '<path d="M20.4 20.5h-3.6v-5.6c0-1.3 0-3-1.8-3s-2.1 1.4-2.1 2.9v5.7H9.4V9h3.4v1.6c.5-.9 1.6-1.8 3.4-1.8 3.6 0 4.3 2.4 4.3 5.5v6.2zM5.3 7.4a2.1 2.1 0 1 1 2.1-2.1 2.1 2.1 0 0 1-2.1 2.1zm1.8 13.1H3.6V9h3.6v11.5zM22.2 0H1.8A1.8 1.8 0 0 0 0 1.7v20.6A1.8 1.8 0 0 0 1.8 24h20.4a1.8 1.8 0 0 0 1.8-1.7V1.7A1.8 1.8 0 0 0 22.2 0z"/>',
+  email: '<path d="M2 5h20v14H2z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m2 6 10 7 10-7" fill="none" stroke="currentColor" stroke-width="1.8"/>',
+};
+
+function shareText() {
   const w = S.world;
   const rar = rarityOf(w.origin).name;
-  const text = `I found ${w.name}, a ${rar} ${TYPE_INFO[w.dna.type].label.toLowerCase()} on COSMONYM. What does your name grow into?`;
-  const url = shareUrl();
-  if (navigator.share && isMobile) { try { await navigator.share({ title: w.name, text, url }); return; } catch { /* cancelled */ } }
-  try { await navigator.clipboard.writeText(`${text} ${url}`); toast('✦ Link copied. Send it to someone!'); }
-  catch { prompt('Copy this link', url); }
+  return w.record && w.owner
+    ? `I discovered ${w.name}, ${/^[AEIOU]/.test(rar) ? 'an' : 'a'} ${rar} ${TYPE_INFO[w.dna.type].label.toLowerCase()} on COSMONYM. What does your name grow into?`
+    : `I found ${w.name}, ${/^[AEIOU]/.test(rar) ? 'an' : 'a'} ${rar} ${TYPE_INFO[w.dna.type].label.toLowerCase()} on COSMONYM. What does your name grow into?`;
+}
+
+$('#shareBtn').onclick = async () => {
+  const w = S.world;
+  const url = shareUrl(), text = shareText();
+  const eu = encodeURIComponent(url), et = encodeURIComponent(text), etitle = encodeURIComponent(`${w.name} · COSMONYM`);
+  $('#shareTargets').innerHTML = SHARE_TARGETS.map(([id, label, fn]) =>
+    `<a class="share-btn s-${id}" href="${esc(fn(eu, et, etitle))}" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" fill="currentColor">${SHARE_ICON[id]}</svg><span>${label}</span></a>`).join('');
+  $('#shareUrl').value = url;
+  $('#shareNative').classList.toggle('hidden', !navigator.share);
+  $('#sharePreview').classList.add('loading');
+  $('#shareModal').classList.add('open');
+  const card = await makeCard(1200, 630);
+  $('#sharePreview').src = card.toDataURL('image/png');
+  $('#sharePreview').classList.remove('loading');
 };
+$('#shareCopy').onclick = async () => {
+  try { await navigator.clipboard.writeText(`${shareText()} ${shareUrl()}`); toast('✦ Link copied. Send it to someone!'); }
+  catch { $('#shareUrl').select(); }
+};
+$('#shareNative').onclick = async () => { try { await navigator.share({ title: S.world.name, text: shareText(), url: shareUrl() }); } catch { /* cancelled */ } };
+$('#shareDownload').onclick = () => $('#postcardBtn').click();
 
 // ------------------------------------------------------------------ postcard
 function captureFrame() { return new Promise(res => { S.capture = res; }); }
-$('#postcardBtn').onclick = async () => {
+// Renders the current view of the world as a branded card (any size, 16:9-ish).
+async function makeCard(W, H) {
   const w = S.world, d = w.dna;
-  toast('Developing your postcard…', 1500);
   const shot = await captureFrame();
   const img = await new Promise(r => { const i = new Image(); i.onload = () => r(i); i.src = shot; });
-  const W = 1600, H = 900;
+  const f = H / 900;                                   // layout was designed at 1600x900
   const c = document.createElement('canvas'); c.width = W; c.height = H;
   const g = c.getContext('2d');
   g.fillStyle = '#04050b'; g.fillRect(0, 0, W, H);
   const s = Math.max(W / img.width, H / img.height);
   const iw = img.width * s, ih = img.height * s;
-  g.drawImage(img, (W - iw) / 2 + 160, (H - ih) / 2, iw, ih);
+  g.drawImage(img, (W - iw) / 2 + 160 * f, (H - ih) / 2, iw, ih);
   const grd = g.createLinearGradient(0, 0, W * 0.7, 0);
   grd.addColorStop(0, 'rgba(4,5,11,0.92)'); grd.addColorStop(0.55, 'rgba(4,5,11,0.55)'); grd.addColorStop(1, 'rgba(4,5,11,0)');
   g.fillStyle = grd; g.fillRect(0, 0, W, H);
   await document.fonts.ready;
   const rar = rarityOf(w.origin), pr = profile(w.name, d);
-  g.fillStyle = '#8fd3ff'; g.font = '500 22px Unbounded'; g.letterSpacing = '8px';
-  g.fillText('COSMONYM', 90, 110);
+  const px = n => Math.round(n * f);
+  g.fillStyle = '#8fd3ff'; g.font = `500 ${px(22)}px Unbounded`; g.letterSpacing = `${px(8)}px`;
+  g.fillText('COSMONYM', px(90), px(110));
   g.letterSpacing = '0px';
-  g.fillStyle = rar.color; g.font = '500 22px "JetBrains Mono"';
-  g.fillText(`✦ ${rar.name.toUpperCase()} · ${TYPE_INFO[d.type].label.toUpperCase()}`, 90, 330);
+  g.fillStyle = rar.color; g.font = `500 ${px(22)}px "JetBrains Mono"`;
+  g.fillText(`✦ ${rar.name.toUpperCase()} · ${TYPE_INFO[d.type].label.toUpperCase()}`, px(90), px(330));
   g.fillStyle = '#ffffff';
-  let size = 104; g.font = `500 ${size}px Unbounded`;
-  while (g.measureText(w.name).width > 760 && size > 40) { size -= 4; g.font = `500 ${size}px Unbounded`; }
-  g.fillText(w.name, 84, 330 + size + 10);
-  g.fillStyle = '#b8bfd8'; g.font = '400 26px Inter';
+  let size = px(104); g.font = `500 ${size}px Unbounded`;
+  while (g.measureText(w.name).width > W * 0.48 && size > px(40)) { size -= 2; g.font = `500 ${size}px Unbounded`; }
+  g.fillText(w.name, px(84), px(330) + size + px(10));
+  g.fillStyle = '#b8bfd8'; g.font = `400 ${px(26)}px Inter`;
   const by = w.record ? `Discovered by ${w.record.discoverer}` : 'Unclaimed, waiting for a discoverer';
-  g.fillText(by, 90, 330 + size + 70);
-  g.font = '400 20px "JetBrains Mono"'; g.fillStyle = '#7d86a3';
+  g.fillText(by, px(90), px(330) + size + px(70));
+  g.font = `400 ${px(20)}px "JetBrains Mono"`; g.fillStyle = '#7d86a3';
   const facts = [`${pr.radiusKm.toLocaleString()} km`, `${pr.tempC}°C`, `${Math.round(d.moons)} moon${Math.round(d.moons) === 1 ? '' : 's'}`, pr.species ? `home of the ${pr.species}` : null].filter(Boolean).join('   ·   ');
-  g.fillText(facts, 90, 330 + size + 120);
-  g.fillStyle = '#eef1ff'; g.font = '400 22px Inter';
-  g.fillText('What does your name grow into?', 90, H - 120);
-  g.fillStyle = '#8fd3ff'; g.font = '500 22px "JetBrains Mono"';
-  g.fillText(shareUrl().replace(/^https?:\/\//, ''), 90, H - 84);
+  g.fillText(facts, px(90), px(330) + size + px(120));
+  g.fillStyle = '#eef1ff'; g.font = `400 ${px(22)}px Inter`;
+  g.fillText('What does your name grow into?', px(90), H - px(120));
+  g.fillStyle = '#8fd3ff'; g.font = `500 ${px(22)}px "JetBrains Mono"`;
+  g.fillText(shareUrl().replace(/^https?:\/\//, ''), px(90), H - px(84));
+  return c;
+}
+
+$('#postcardBtn').onclick = async () => {
+  toast('Developing your postcard…', 1500);
+  const c = await makeCard(1600, 900);
   const a = document.createElement('a');
-  a.download = `${w.id}-cosmonym.png`;
+  a.download = `${S.world.id}-cosmonym.png`;
   a.href = c.toDataURL('image/png');
   a.click();
 };
+
+// The link-preview image for a claimed world, uploaded by its owner's browser.
+async function uploadCard() {
+  const w = S.world;
+  if (!S.me || !w?.record || !w.owner) return;
+  try {
+    const c = await makeCard(1200, 630);
+    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.88));
+    const r = await fetch(`/api/world/${w.id}/card`, { method: 'PUT', headers: { 'Content-Type': 'image/jpeg' }, body: blob });
+    if (r.ok) w.record.hasCard = true;
+  } catch { /* previews are a nice-to-have */ }
+}
 
 // photo mode
 function togglePhoto(force) {
@@ -791,6 +857,8 @@ function renderAccount() {
   b.classList.toggle('hidden', !S.accounts);
   b.innerHTML = S.me ? `<span class="av">${esc(S.me.handle[0].toUpperCase())}</span> <span class="label">${esc(S.me.handle)}</span>` : 'Sign in';
   $('#menuProfile').setAttribute('href', S.me ? `/u/${S.me.slug}` : '/');
+  $('#menuAdmin').classList.toggle('hidden', !S.me?.adminPath);
+  if (S.me?.adminPath) $('#menuAdmin').setAttribute('href', S.me.adminPath);
   if (S.world?.record) { S.world.owner = ownsRecord(S.world.record); if (S.mode === 'world') { renderDossier(false); renderActions(); } }
 }
 
@@ -949,6 +1017,73 @@ async function showProfile(slug) {
 }
 $('#pWorlds').addEventListener('click', e => { const c = e.target.closest('[data-id]'); if (c) navigate('/w/' + c.dataset.id); });
 
+// ------------------------------------------------------------------ leaderboards
+const RANK_ORDER = ['Mythic', 'Legendary', 'Epic', 'Rare', 'Uncommon', 'Common'];
+const rarityColor = r => (RARITY.find(x => x.name === r) || RARITY[0]).color;
+const by = w => w.ownerSlug ? `<a href="/u/${esc(w.ownerSlug)}" data-link>${esc(w.discoverer)}</a>` : esc(w.discoverer);
+
+function lbWorldRow(w, i, value) {
+  return `<li data-world="${esc(w.id)}"><span class="rank">${i + 1}</span><i class="orb" style="--h:${Math.round(w.hue * 360)}"></i>
+    <div class="who"><b>${esc(w.name)}</b><span><em style="color:${rarityColor(w.rarity)}">${esc(w.rarity)}</em> · by ${by(w)}</span></div><span class="val">${value}</span></li>`;
+}
+function lbExplorerRow(e, i, value) {
+  return `<li data-user="${esc(e.slug)}"><span class="rank">${i + 1}</span><span class="av">${esc(e.handle[0].toUpperCase())}</span>
+    <div class="who"><b>${esc(e.handle)}</b><span>${e.worlds} world${e.worlds === 1 ? '' : 's'} · best: <em style="color:${RARITY[e.best].color}">${RARITY[e.best].name}</em></span></div><span class="val">${value}</span></li>`;
+}
+const empty = msg => `<li class="lb-empty">${msg}</li>`;
+
+function renderLbLists() {
+  const lb = S.lb; if (!lb) return;
+  const starsMode = $('[data-group="stars"] .active').dataset.v;
+  const list = starsMode === 'week' ? lb.weekStars : lb.topStars;
+  $('#lbStars').innerHTML = list.length ? list.map((w, i) => lbWorldRow(w, i, `★ ${starsMode === 'week' ? w.n : w.stars}`)).join('')
+    : empty(starsMode === 'week' ? 'No stars given this week yet. Find a world you love and star it.' : 'No stars yet.');
+  const ex = $('[data-group="explorers"] .active').dataset.v;
+  const people = lb.explorers[ex];
+  $('#lbExplorers').innerHTML = people.length ? people.map((e, i) => lbExplorerRow(e, i, ex === 'worlds' ? `${e.worlds}` : ex === 'stars' ? `★ ${e.stars}` : `${e.rare}`)).join('')
+    : empty('Nobody here yet.');
+}
+
+async function showLeaders() {
+  if (S.mode === 'world') await returnToGalaxy('leaders'); else setMode('leaders');
+  document.title = 'Leaderboards · COSMONYM';
+  try {
+    const lb = S.lb = await api.get('/api/leaderboards');
+    $('#lbTotal').textContent = lb.total ? `${lb.total.toLocaleString()} world${lb.total === 1 ? '' : 's'} discovered so far` : 'The galaxy is waiting for its first discoverer';
+    $('#lbCensus').innerHTML = RANK_ORDER.map(r => {
+      const n = lb.census[r] || 0;
+      return `<div class="census-chip" style="--rc:${rarityColor(r)}"><b>${n.toLocaleString()}</b><span>${r}</span></div>`;
+    }).join('');
+    const ever = lb.firsts.ever;
+    $('#lbFirstEver').innerHTML = ever ? `<div class="first-hero" data-world="${esc(ever.id)}"><i class="orb" style="--h:${Math.round(ever.hue * 360)}"></i>
+        <div><span class="tag-first">First world ever claimed</span><h4>${esc(ever.name)}</h4><p>Discovered by ${by(ever)} · ${new Date(ever.createdAt).toLocaleDateString(undefined, { dateStyle: 'long' })}</p></div></div>`
+      : '<div class="first-hero empty">No world has been claimed yet. The very first spot in history is open.</div>';
+    $('#lbFirstRarity').innerHTML = ['Mythic', 'Legendary', 'Epic', 'Rare'].map(r => {
+      const w = lb.firsts.rarity[r];
+      return `<div class="first-card${w ? '' : ' open'}" style="--rc:${rarityColor(r)}" ${w ? `data-world="${esc(w.id)}"` : ''}>
+        <span class="tag-first">First ${r}</span>${w ? `<b>${esc(w.name)}</b><span>by ${by(w)}</span>` : '<b>Unclaimed</b><span>Could be yours</span>'}</div>`;
+    }).join('');
+    $('#lbFirstType').innerHTML = TYPES.map(t => {
+      const w = lb.firsts.type[t];
+      return `<div class="first-type${w ? '' : ' open'}" ${w ? `data-world="${esc(w.id)}"` : ''} title="First ${TYPE_INFO[t].label}"><span>${TYPE_INFO[t].glyph}</span><b>${w ? esc(w.name) : '—'}</b><em>${TYPE_INFO[t].short}</em></div>`;
+    }).join('');
+    $('#lbRarest').innerHTML = lb.rarest.length ? lb.rarest.map((w, i) => lbWorldRow(w, i, `★ ${w.stars}`)).join('') : empty('No worlds yet.');
+    renderLbLists();
+  } catch {
+    $('#lbTotal').textContent = 'Leaderboards are taking a breather. Try again shortly.';
+  }
+}
+$$('.mini-tabs').forEach(g => g.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  g.querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b));
+  renderLbLists();
+}));
+$('#leaders').addEventListener('click', e => {
+  if (e.target.closest('a')) return;
+  const w = e.target.closest('[data-world]'); if (w) return navigate('/w/' + w.dataset.world);
+  const u = e.target.closest('[data-user]'); if (u) return navigate('/u/' + u.dataset.user);
+});
+
 // ------------------------------------------------------------------ reports
 $('#reportBtn').onclick = () => {
   if (!S.world.record) return toast('Only claimed worlds can be reported.');
@@ -1042,7 +1177,7 @@ function frame() {
     applyViewOffset(dt);
   } else {
     galaxy.update(dt);
-    if ((S.mode === 'home' || S.mode === 'profile') && !S.flight) {
+    if ((S.mode === 'home' || S.mode === 'profile' || S.mode === 'leaders') && !S.flight) {
       S.homeAngle += dt * 0.025;
       homeCameraPos(S.homeAngle, galaxyCam.position);
       galaxyControls.target.set(0, -10, 0);

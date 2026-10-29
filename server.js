@@ -11,6 +11,7 @@ import { dnaFromName, rarityOf, worldColorHue } from './public/js/dna.js';
 import { isOffensive } from './public/js/filter.js';
 import { createStore, hasLegacyFile, FileStore, DuplicateError, UnavailableError } from './lib/store.js';
 import { initKeys } from './lib/crypto.js';
+import { mailEnabled } from './lib/mailer.js';
 import { Accounts } from './lib/accounts.js';
 import { createAuthRoutes } from './lib/auth-routes.js';
 import { createAdminRoutes } from './lib/admin-routes.js';
@@ -62,6 +63,32 @@ function loadSecret() {
 }
 const IP_SECRET = loadSecret();
 
+// ---------------------------------------------------------------- share cards
+// A 1200x630 image of each claimed world, rendered by its owner's browser and used
+// as the link preview (og:image) when the world is shared.
+const CARD_DIR = path.join(DATA_DIR, 'cards');
+const cardPath = id => path.join(CARD_DIR, id + '.jpg');
+const hasCard = id => fs.existsSync(cardPath(id));
+const removeCard = id => fsp.unlink(cardPath(id)).catch(() => {});
+// A real JPEG of exactly 1200x630: walk its segments to the frame header.
+function validCardJpeg(buf) {
+  if (buf.length < 2000 || buf[0] !== 0xff || buf[1] !== 0xd8 || buf[buf.length - 2] !== 0xff || buf[buf.length - 1] !== 0xd9) return false;
+  let i = 2;
+  while (i + 9 < buf.length) {
+    if (buf[i] !== 0xff) return false;
+    const marker = buf[i + 1], len = buf.readUInt16BE(i + 2);
+    if (marker >= 0xc0 && marker <= 0xc3) return buf.readUInt16BE(i + 5) === 630 && buf.readUInt16BE(i + 7) === 1200;
+    if (marker === 0xda || len < 2) return false;       // reached image data without a frame header
+    i += 2 + len;
+  }
+  return false;
+}
+async function readRaw(req, limit) {
+  let size = 0; const chunks = [];
+  for await (const c of req) { size += c.length; if (size > limit) throw new BadRequest('image too large', 413); chunks.push(c); }
+  return Buffer.concat(chunks);
+}
+
 // ---------------------------------------------------------------- helpers
 export function slugify(name) {
   return String(name).normalize('NFKD').replace(/[̀-ͯ]/g, '')
@@ -111,7 +138,7 @@ function publicWorld(w, full = false) {
     stars: w.stars, views: w.views, type: w.dna.type, hue: w.hue, rarity: rarityFor(w.name),
     ownerSlug: w.ownerId ? slugify(w.discoverer) : null,
   };
-  if (full) { base.dna = w.dna; base.epitaph = w.epitaph; base.updatedAt = w.updatedAt; }
+  if (full) { base.dna = w.dna; base.epitaph = w.epitaph; base.updatedAt = w.updatedAt; base.hasCard = hasCard(w.id); }
   return base;
 }
 
@@ -163,6 +190,7 @@ const ipHash = ip => crypto.createHmac('sha256', IP_SECRET).update(ip).digest('b
 
 // ---------------------------------------------------------------- live stream
 let mapCache = null;
+let lbCache = null;
 const clients = new Set();
 const streamsByIp = new Map();
 function broadcast(event, data) {
@@ -179,7 +207,7 @@ setInterval(() => {
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon',
-  '.webmanifest': 'application/manifest+json', '.txt': 'text/plain; charset=utf-8',
+  '.webmanifest': 'application/manifest+json', '.jpg': 'image/jpeg', '.txt': 'text/plain; charset=utf-8',
 };
 
 function send(res, status, body, headers = {}) {
@@ -207,7 +235,7 @@ async function readBody(req, limit = 16384) {
 // content type forces a CORS preflight that we never grant, and the Origin check
 // catches anything that slips past it.
 function sameOrigin(req) {
-  if (!/^application\/json\b/i.test(req.headers['content-type'] || '')) return false;
+  if (!/^(application\/json|image\/jpeg)\b/i.test(req.headers['content-type'] || '')) return false;
   const origin = String(req.headers.origin || '').toLowerCase();
   if (!origin) return true;            // non-browser clients; still rate limited
   try {
@@ -267,15 +295,20 @@ function indexHtml(world) {
   const rar = rarityFor(world.name);
   const title = `${esc(world.name)}, ${/^[aeiou]/i.test(rar) ? 'an' : 'a'} ${esc(rar)} world on COSMONYM`;
   const desc = `Discovered by ${esc(world.discoverer)}. ${world.epitaph ? '“' + esc(world.epitaph) + '” ' : ''}Type any name and grow your own world.`;
+  const url = `${PUBLIC_URL}/w/${world.id}`;
+  const image = hasCard(world.id) ? `<meta property="og:image" content="${PUBLIC_URL}/card/${world.id}.jpg?v=${world.updatedAt || ''}" />
+  <meta property="og:image:type" content="image/jpeg" /><meta property="og:image:width" content="1200" /><meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="${title}" /><meta name="twitter:image" content="${PUBLIC_URL}/card/${world.id}.jpg?v=${world.updatedAt || ''}" />` : '';
   return indexTemplate
+    .replace('</head>', `  <meta property="og:url" content="${url}" />\n  <meta name="twitter:card" content="${image ? 'summary_large_image' : 'summary'}" />\n  <meta name="twitter:title" content="${title}" />\n  <meta name="twitter:description" content="${desc}" />\n  ${image}\n</head>`)
     .replace(/<title>[^<]*<\/title>/, `<title>${title}</title>`)
     .replace(/(<meta property="og:title" content=")[^"]*/, `$1${title}`)
     .replace(/(<meta property="og:description" content=")[^"]*/, `$1${desc}`)
     .replace(/(<meta name="description" content=")[^"]*/, `$1${desc}`);
 }
 
-const invalidateMap = () => { mapCache = null; };
-const routeCtx = { accounts, store, send, readBody, sanitizeText, isOffensive, limited, broadcast, invalidateMap, publicUrl: PUBLIC_URL, adminDir: ADMIN_DIR };
+const invalidateMap = () => { mapCache = null; lbCache = null; };
+const routeCtx = { accounts, store, send, readBody, sanitizeText, isOffensive, limited, broadcast, invalidateMap, removeCard, publicUrl: PUBLIC_URL, adminDir: ADMIN_DIR };
 const auth = accounts ? createAuthRoutes({ ...routeCtx, publicWorld }) : null;
 const admin = accounts ? createAdminRoutes(routeCtx) : null;
 
@@ -292,6 +325,7 @@ const server = http.createServer(async (req, res) => {
 
   try {
     const rctx = { url, p, ip, ipHash: ipHash(ip), secure: isSecure(req) };
+    let m0;
     if (admin && await admin.handle(req, res, rctx)) return;
     if (auth && await auth.handle(req, res, rctx)) return;
     // ---- API
@@ -330,6 +364,39 @@ const server = http.createServer(async (req, res) => {
       if (rawQ && !q) return send(res, 200, { worlds: [] });
       const list = await store.list({ sort, limit, q });
       return send(res, 200, { worlds: list.map(w => publicWorld(w)) });
+    }
+
+    if ((m0 = p.match(/^\/api\/world\/([a-z0-9-]{1,32})\/card$/)) && req.method === 'PUT') {
+      const me = auth ? await auth.currentUser(req, rctx.secure) : null;
+      if (!me) return send(res, 401, { error: 'Sign in first.', needAuth: true });
+      const w = await store.get(m0[1]);
+      if (!w || w.ownerId !== me.user.id) return send(res, 403, { error: 'Only the discoverer can set this world’s card.' });
+      if (limited('u' + me.user.id, 'card', 30, 3600000)) return send(res, 429, { error: 'Too many uploads.' });
+      if (!/^image\/jpeg$/i.test(req.headers['content-type'] || '')) return send(res, 415, { error: 'JPEG only.' });
+      const buf = await readRaw(req, 900_000);
+      if (!validCardJpeg(buf)) return send(res, 400, { error: 'Not a valid card image.' });
+      await fsp.mkdir(CARD_DIR, { recursive: true });
+      const tmp = cardPath(w.id) + '.tmp';
+      await fsp.writeFile(tmp, buf);
+      await fsp.rename(tmp, cardPath(w.id));
+      return send(res, 200, { ok: true });
+    }
+
+    if (p === '/api/leaderboards' && req.method === 'GET') {
+      if (!accounts) return send(res, 503, { error: 'Leaderboards need the database.' });
+      if (!lbCache || Date.now() - lbCache.at > 30000) {
+        const lb = await accounts.leaderboards();
+        const pw = w => ({ ...publicWorld(w), n: w.n });
+        const body = {
+          rarest: lb.rarest.map(pw), topStars: lb.topStars.map(pw), weekStars: lb.weekStars.map(pw), explorers: lb.explorers,
+          firsts: { ever: lb.firsts.ever && pw(lb.firsts.ever), rarity: Object.fromEntries(Object.entries(lb.firsts.rarity).map(([k, w]) => [k, pw(w)])),
+            type: Object.fromEntries(Object.entries(lb.firsts.type).map(([k, w]) => [k, pw(w)])) },
+          census: lb.census, total: Object.values(lb.census).reduce((a, b) => a + b, 0),
+        };
+        lbCache = { at: Date.now(), body: JSON.stringify(body) };
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=30' });
+      return res.end(lbCache.body);
     }
 
     // Compact map of every world for the galaxy: [id, name, hue, typeIndex, stars]
@@ -378,8 +445,8 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/world' && req.method === 'POST') {
       const me = auth ? await auth.currentUser(req, rctx.secure) : null;
       if (auth && !me) return send(res, 401, { error: 'Sign in to claim worlds.', needAuth: true });
-      // accounts without a confirmed email get a smaller daily allowance
-      if (me && !me.user.emailVerified && limited('u' + me.user.id, 'claim-unverified', 5, 86400000)) return send(res, 429, { error: 'Confirm your email to claim more worlds today.' });
+      // once confirmation emails can be sent, unconfirmed accounts get a smaller daily allowance
+      if (me && !me.user.emailVerified && mailEnabled() && limited('u' + me.user.id, 'claim-unverified', 5, 86400000)) return send(res, 429, { error: 'Confirm your email to claim more worlds today.' });
       if (me && limited('u' + me.user.id, 'claim', 12, 3600000)) return send(res, 429, { error: 'You’ve claimed a lot of worlds this hour. Give the cosmos a moment.' });
       if (limited(ip, 'claim', 12, 3600000)) return send(res, 429, { error: 'You’ve claimed a lot of worlds this hour. Give the cosmos a moment.' });
       // galaxy-wide safety valve against a distributed flood
@@ -433,8 +500,13 @@ const server = http.createServer(async (req, res) => {
     if (p.startsWith('/vendor/three/build/') || p.startsWith('/vendor/three/examples/jsm/')) return serveFile(res, p.slice('/vendor/three/'.length), THREE_DIR, 'public, max-age=31536000, immutable');
     if (p.startsWith('/vendor/')) return send(res, 404, 'not found');
 
+    if ((m0 = p.match(/^\/card\/([a-z0-9-]{1,32})\.jpg$/))) {
+      if (!hasCard(m0[1])) return send(res, 404, 'not found');
+      return serveFile(res, m0[1] + '.jpg', CARD_DIR, 'public, max-age=3600');
+    }
+    if (p === '/.well-known/security.txt') return serveFile(res, 'security.txt', PUBLIC_DIR, 'public, max-age=86400');
     if (p === '/privacy' || p === '/terms') return serveFile(res, p.slice(1) + '.html', PUBLIC_DIR, 'no-cache');
-    if (p === '/' || p === '/index.html' || p === '/explore' || p === '/account' || /^\/(u\/[a-z0-9-]{1,32}|auth\/(verify|reset))\/?$/.test(p)) return send(res, 200, indexHtml(null), { 'Content-Type': MIME['.html'] });
+    if (p === '/' || p === '/index.html' || p === '/explore' || p === '/account' || p === '/leaderboards' || /^\/(u\/[a-z0-9-]{1,32}|auth\/(verify|reset))\/?$/.test(p)) return send(res, 200, indexHtml(null), { 'Content-Type': MIME['.html'] });
     if ((m = p.match(/^\/w\/([a-z0-9-]{1,32})\/?$/))) {
       if (isOffensive(m[1]) || isOffensive(url.searchParams.get('n') || '')) { res.writeHead(302, { Location: '/' }); return res.end(); }
       const world = store.ready ? await store.get(m[1]).catch(() => null) : null;

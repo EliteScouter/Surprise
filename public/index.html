@@ -35,6 +35,7 @@
       <span>COSMONYM</span>
     </a>
     <nav>
+      <a href="/leaderboards" data-link class="nav-link" id="navLeaders">Leaderboards</a>
       <a href="/explore" data-link class="nav-link" id="navExplore">Explore galaxy</a>
       <span class="pill live" id="livePill" title="Explorers online right now"><i></i><b id="onlineCount">1</b> online</span>
       <div class="account-wrap">
@@ -42,6 +43,7 @@
         <div class="menu glass" id="accountMenu" role="menu">
           <a href="#" data-link id="menuProfile" role="menuitem">My worlds</a>
           <a href="/account" data-link role="menuitem">Account</a>
+          <a href="#" id="menuAdmin" class="hidden" role="menuitem">Admin panel</a>
           <button id="menuSignOut" role="menuitem">Sign out</button>
         </div>
       </div>
@@ -72,6 +74,40 @@
     </div>
     <nav class="legal-links"><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
     <div class="ticker" id="ticker"><div class="ticker-track" id="tickerTrack"></div></div>
+  </section>
+
+  <!-- LEADERBOARDS -->
+  <section id="leaders" class="screen ui">
+    <div class="lb-wrap">
+      <header class="lb-head">
+        <div class="eyebrow"><span class="spark">✦</span> <span id="lbTotal">Hall of the Cosmos</span></div>
+        <h1>The finest worlds<br/>ever <em>discovered</em>.</h1>
+      </header>
+      <div class="census" id="lbCensus"></div>
+      <section class="firsts glass">
+        <h2>Hall of Firsts</h2>
+        <p class="muted">Each record belongs to whoever got there first. Forever.</p>
+        <div class="first-ever" id="lbFirstEver"></div>
+        <div class="first-grid" id="lbFirstRarity"></div>
+        <div class="first-types" id="lbFirstType"></div>
+      </section>
+      <div class="lb-grid">
+        <section class="lb-card glass">
+          <h3>Rarest worlds</h3>
+          <ol class="lb-list" id="lbRarest"></ol>
+        </section>
+        <section class="lb-card glass">
+          <div class="lb-card-head"><h3>Most starred</h3>
+            <div class="mini-tabs" data-group="stars"><button data-v="week" class="active">This week</button><button data-v="all">All time</button></div></div>
+          <ol class="lb-list" id="lbStars"></ol>
+        </section>
+        <section class="lb-card glass">
+          <div class="lb-card-head"><h3>Top explorers</h3>
+            <div class="mini-tabs" data-group="explorers"><button data-v="worlds" class="active">Worlds</button><button data-v="stars">Stars</button><button data-v="rare">Rare finds</button></div></div>
+          <ol class="lb-list" id="lbExplorers"></ol>
+        </section>
+      </div>
+    </div>
   </section>
 
   <!-- PROFILE -->
@@ -208,6 +244,7 @@
         <button class="btn ghost small" type="submit" id="pwSubmit">Change password</button>
       </form>
       <p class="muted small" id="acctProviders"></p>
+      <a class="btn ghost small export-btn" href="/api/account/export" download>⤓ Download my data</a>
       <p class="error" id="acctError"></p>
       <details class="danger-zone">
         <summary>Delete account</summary>
@@ -218,6 +255,21 @@
           <button class="btn small danger-btn" type="submit">Delete my account</button>
         </form>
       </details>
+    </div>
+  </div>
+
+  <!-- SHARE -->
+  <div class="modal" id="shareModal" role="dialog" aria-modal="true" aria-labelledby="shareTitle">
+    <div class="modal-card glass share-card">
+      <button type="button" class="icon-btn small close" data-close aria-label="Close">✕</button>
+      <h3 id="shareTitle">Share this world</h3>
+      <img id="sharePreview" class="share-preview loading" alt="Preview of the shared card" width="1200" height="630" />
+      <div class="share-targets" id="shareTargets"></div>
+      <div class="share-link"><input class="field" id="shareUrl" readonly /><button class="btn primary small" id="shareCopy">Copy</button></div>
+      <div class="share-extra">
+        <button class="btn ghost small" id="shareDownload">⤓ Download postcard</button>
+        <button class="btn ghost small hidden" id="shareNative">More options…</button>
+      </div>
     </div>
   </div>
 

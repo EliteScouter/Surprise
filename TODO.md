@@ -32,6 +32,7 @@ Listed in build order. Each step depends on the ones above it.
 - [x] Secure sessions (HttpOnly, SameSite, `__Host-`/Secure on HTTPS), sign out, change name/password, delete account
 - [x] Account pre-hijacking protection: a provider-verified email takes over an unverified look-alike account
 - [ ] **(You)** Create the Google, Microsoft and Discord sign-in apps and the M365 mail app (steps in chat)
+- [x] "Download my data" export (GDPR) in Account
 - [ ] Optional 2FA for regular users
 
 ## 4. Admin panel
@@ -44,29 +45,28 @@ Listed in build order. Each step depends on the ones above it.
 - [x] "Report this world" button for visitors
 
 ## 5. Leaderboards
-- [ ] Rarest worlds (all time / this week)
-- [ ] Most-starred worlds (all time / this week)
-- [ ] Top discoverers (most worlds, most stars, most Mythics)
-- [ ] "Firsts" hall of fame: first Mythic ever, first megastructure, etc.
-- [ ] Live counters: "Only N anomaly worlds have ever been claimed"
+- [x] Rarest worlds (all time / this week)
+- [x] Most-starred worlds (all time / this week)
+- [x] Top discoverers (most worlds, most stars, most Mythics)
+- [x] "Firsts" hall of fame: first Mythic ever, first megastructure, etc.
+- [x] Live counters: "Only N anomaly worlds have ever been claimed"
 
 ## 6. Visible civilisations
-Make worlds with life feel inhabited from orbit. Detail should grow with the civilisation level:
-- [ ] **Early:** sparse firelight specks along rivers and coasts on the night side
-- [ ] **Industrial:** city clusters, faint smog haze, patchwork farmland tint on the day side
-- [ ] **Planetary:** glowing road/rail networks linking cities, lit shipping lanes across oceans, grey urban sprawl on the day side
-- [ ] **Spacefaring:** tiny satellites and stations orbiting as moving points of light, launch flares, a space elevator
-- [ ] **Advanced:** orbital ring megastructure, Dyson-swarm glints around the sun
-- [ ] Cities sit on coastlines, rivers and temperate land, and avoid ice, deserts and peaks
-- [ ] Species-specific light colour (warm amber, cool blue, alien green)
-- [ ] Dossier shows the civilisation stage and a line of lore about it
+- [x] **Early:** sparse firelight specks along coasts on the night side
+- [x] **Industrial:** city clusters, industrial haze, patchwork farmland on the day side
+- [x] **Planetary:** glowing road networks, shipping lanes across dark oceans, grey urban sprawl by day
+- [x] **Spacefaring:** satellites in inclined orbits (glinting in sunlight, blinking in shadow), stations, rocket launches
+- [x] **Stellar engineers:** Dyson swarm around the star
+- [x] Cities favour coasts and temperate lowlands; avoid ice, deserts and peaks
+- [x] Species-specific light colour (amber, warm white, cool blue, alien green, magenta)
+- [x] Dossier shows the civilisation stage, Kardashev type and a lore line
 
 ## 7. Share window
-- [ ] Share dialog with buttons: X, Facebook, Reddit, WhatsApp, Telegram, Bluesky, Threads, LinkedIn, email, copy link
-- [ ] Native phone share sheet where available
-- [ ] Per-world preview image (the planet itself) so links show the world in previews
-- [ ] Download postcard from the same dialog
-- [ ] Pre-written share text that includes the world's rarity
+- [x] Share dialog: X, Facebook, Reddit, WhatsApp, Telegram, Bluesky, Threads, LinkedIn, email, copy link
+- [x] Native phone share sheet where available
+- [x] Per-world preview image (1200x630 JPEG rendered by the owner's browser, validated server-side) in og:image / twitter:image
+- [x] Download postcard from the same dialog
+- [x] Pre-written share text that includes the world's rarity
 
 ## Security
 
@@ -117,7 +117,7 @@ Found by attacking the running app, then verified blocked:
 - [ ] Rotate the Portainer API token used for deploys; store it outside shell profiles
 - [ ] Host patching schedule for E-Docker01 and the DB nodes; rebuild the image monthly for base-image patches
 - [ ] Container image vulnerability scan on every build (Trivy or Docker Scout)
-- [ ] `npm audit` + Dependabot on the GitHub repo
+- [x] Dependabot for npm and both base images (`.github/dependabot.yml`)
 - [ ] Cloudflare WAF managed rules on, bot fight mode, rate-limit rules at the edge for `/api/*`
 - [ ] Off-host, encrypted, versioned backups of the DB and `secret.key`; test a restore
 - [ ] Centralised logs with alerts on spikes in 4xx/5xx, 429s and admin logins
@@ -135,7 +135,7 @@ Found by attacking the running app, then verified blocked:
 - [ ] Check new passwords against known-breached lists (HaveIBeenPwned k-anonymity API)
 - [ ] Measure against **OWASP ASVS Level 2** and the **OWASP Top 10** before launch
 - [ ] GDPR/CCPA: privacy policy, cookie notice (only essential cookies), data export and account deletion, data-retention limits
-- [ ] `security.txt` with a contact for responsible disclosure
+- [x] `security.txt` at `/.well-known/security.txt` (create the `security@cosmonym.app` alias)
 - [ ] External penetration test (or a paid bug bounty) before a big public launch
 
 ## Also discussed (not yet scheduled)
