@@ -24,7 +24,7 @@ npm install
 npm start          # http://localhost:3000
 ```
 
-Or with Docker: `docker compose up -d --build` (serves on port 8089, data in the `worldseed-data` volume).
+Or with Docker: `docker compose up -d` (runs the repo on a stock Node image, serves on port 8089, data in the `worldseed-data` volume). A standalone `Dockerfile` is included too.
 
 Zero runtime dependencies besides three.js; the server is plain Node.
 
