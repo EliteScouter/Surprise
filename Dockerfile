@@ -1,4 +1,4 @@
-FROM node:22-alpine
+FROM node:25-alpine
 WORKDIR /app
 ENV NODE_ENV=production PORT=3000 DATA_DIR=/data
 # Pick up OS security patches released since the base image was published.
