@@ -37,6 +37,14 @@
     <nav>
       <a href="/explore" data-link class="nav-link" id="navExplore">Explore galaxy</a>
       <span class="pill live" id="livePill" title="Explorers online right now"><i></i><b id="onlineCount">1</b> online</span>
+      <div class="account-wrap">
+        <button class="btn ghost small hidden" id="accountBtn" aria-haspopup="menu"></button>
+        <div class="menu glass" id="accountMenu" role="menu">
+          <a href="#" data-link id="menuProfile" role="menuitem">My worlds</a>
+          <a href="/account" data-link role="menuitem">Account</a>
+          <button id="menuSignOut" role="menuitem">Sign out</button>
+        </div>
+      </div>
       <button class="icon-btn" id="soundBtn" aria-label="Toggle sound" title="Sound (M)">
         <svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor"/><path class="wave" d="M16 8.5a4.5 4.5 0 010 7M18.5 6a8 8 0 010 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
       </button>
@@ -63,6 +71,21 @@
       </div>
     </div>
     <div class="ticker" id="ticker"><div class="ticker-track" id="tickerTrack"></div></div>
+  </section>
+
+  <!-- PROFILE -->
+  <section id="profile" class="screen ui">
+    <div class="profile-wrap">
+      <div class="profile-head glass">
+        <div class="avatar" id="pAvatar"></div>
+        <div>
+          <h2 id="pName"></h2>
+          <p class="muted" id="pMeta"></p>
+        </div>
+        <div class="pstats" id="pStats"></div>
+      </div>
+      <div class="pgrid" id="pWorlds"></div>
+    </div>
   </section>
 
   <!-- EXPLORE -->
@@ -122,6 +145,7 @@
       <button class="act" id="forgeBtn" title="Forge (F)"><svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="16" cy="6" r="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="10" cy="12" r="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="18" cy="18" r="2" fill="none" stroke="currentColor" stroke-width="1.8"/></svg><span>Forge</span></button>
       <button class="act" id="shareBtn" title="Share"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 8l5-5 5 5M5 14v5h14v-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Share</span></button>
       <button class="act" id="postcardBtn" title="Download postcard"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="11" r="2.5" fill="currentColor"/><path d="M14 9h4M14 13h4" stroke="currentColor" stroke-width="1.6"/></svg><span>Postcard</span></button>
+      <button class="act" id="reportBtn" title="Report this world"><svg viewBox="0 0 24 24"><path d="M5 21V4m0 0h11l-2 4 2 4H5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Report</span></button>
       <button class="act" id="photoBtn" title="Photo mode (H)"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg><span>Photo</span></button>
     </div>
   </section>
@@ -133,13 +157,83 @@
       <div class="modal-orb" id="claimOrb"></div>
       <h3 id="claimTitle">Claim <span id="claimName"></span></h3>
       <p class="muted">Your world will shine in the galaxy for everyone, forever. Names are first come, first served.</p>
-      <label>Discovered by<input class="field" id="claimBy" maxlength="24" placeholder="Your name or handle" required /></label>
+      <p class="claim-as hidden" id="claimAs"></p>
+      <label id="claimByWrap">Discovered by<input class="field" id="claimBy" maxlength="24" placeholder="Your name or handle" /></label>
       <label>A message for future explorers <span class="muted small">(optional)</span><textarea class="field" id="claimMsg" maxlength="140" rows="2" placeholder="“I found this on a Tuesday and it felt like home.”"></textarea></label>
       <div class="modal-actions">
         <button type="button" class="btn ghost" id="claimCancel">Not yet</button>
         <button type="submit" class="btn primary" id="claimSubmit">Claim world ✦</button>
       </div>
       <p class="error" id="claimError"></p>
+    </form>
+  </div>
+
+  <!-- SIGN IN / SIGN UP -->
+  <div class="modal" id="authModal" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+    <form class="modal-card glass" id="authForm" novalidate>
+      <button type="button" class="icon-btn small close" data-close aria-label="Close">✕</button>
+      <h3 id="authTitle">Sign in</h3>
+      <p class="muted" id="authSub"></p>
+      <div class="social" id="socialBtns"></div>
+      <div class="or" id="authOr"><span>or with email</span></div>
+      <label class="f-handle">Explorer name<input class="field" id="authHandle" maxlength="20" autocomplete="nickname" placeholder="How the galaxy will know you" /></label>
+      <label class="f-email">Email<input class="field" id="authEmail" type="email" maxlength="254" autocomplete="email" /></label>
+      <label class="f-password">Password<input class="field" id="authPassword" type="password" maxlength="200" autocomplete="current-password" /></label>
+      <p class="hint f-hint">At least 10 characters. Checked privately against known breaches.</p>
+      <button type="submit" class="btn primary wide" id="authSubmit">Sign in</button>
+      <p class="error" id="authError"></p>
+      <div class="auth-links">
+        <a href="#" data-auth="forgot" class="l-forgot">Forgot password?</a>
+        <a href="#" data-auth="signup" class="l-signup">New here? <b>Create an account</b></a>
+        <a href="#" data-auth="signin" class="l-signin">Already exploring? <b>Sign in</b></a>
+      </div>
+    </form>
+  </div>
+
+  <!-- ACCOUNT -->
+  <div class="modal" id="accountModal" role="dialog" aria-modal="true" aria-labelledby="accountTitle">
+    <div class="modal-card glass account-card">
+      <button type="button" class="icon-btn small close" data-close aria-label="Close">✕</button>
+      <h3 id="accountTitle">Your account</h3>
+      <div class="verify-note hidden" id="verifyNote">Your email isn’t confirmed yet. <a href="#" id="resendVerify">Send the link again</a></div>
+      <form id="handleForm" class="acct-row">
+        <label>Explorer name<input class="field" id="acctHandle" maxlength="20" /></label>
+        <button class="btn ghost small" type="submit">Save</button>
+      </form>
+      <form id="passwordForm" class="acct-block">
+        <label id="curPwWrap">Current password<input class="field" id="acctCurrent" type="password" autocomplete="current-password" /></label>
+        <label><span id="newPwLabel">New password</span><input class="field" id="acctNew" type="password" autocomplete="new-password" /></label>
+        <button class="btn ghost small" type="submit" id="pwSubmit">Change password</button>
+      </form>
+      <p class="muted small" id="acctProviders"></p>
+      <p class="error" id="acctError"></p>
+      <details class="danger-zone">
+        <summary>Delete account</summary>
+        <p class="muted small">Your worlds stay in the galaxy but are no longer linked to you. This can’t be undone.</p>
+        <form id="deleteForm" class="acct-block">
+          <input class="field" id="delPassword" type="password" placeholder="Your password" autocomplete="current-password" />
+          <input class="field" id="delConfirm" placeholder="Type DELETE" />
+          <button class="btn small danger-btn" type="submit">Delete my account</button>
+        </form>
+      </details>
+    </div>
+  </div>
+
+  <!-- REPORT -->
+  <div class="modal" id="reportModal" role="dialog" aria-modal="true" aria-labelledby="reportTitle">
+    <form class="modal-card glass" id="reportForm">
+      <h3 id="reportTitle">Report this world</h3>
+      <p class="muted">Tell us what’s wrong. Reports go to a person, not a robot.</p>
+      <div class="reasons">
+        <label><input type="radio" name="reason" value="hateful" required /> Hateful or harassing</label>
+        <label><input type="radio" name="reason" value="offensive" /> Offensive name or message</label>
+        <label><input type="radio" name="reason" value="sexual" /> Sexual content</label>
+        <label><input type="radio" name="reason" value="impersonation" /> Impersonation</label>
+        <label><input type="radio" name="reason" value="spam" /> Spam</label>
+        <label><input type="radio" name="reason" value="other" /> Something else</label>
+      </div>
+      <textarea class="field" id="reportNote" maxlength="400" rows="2" placeholder="Anything we should know? (optional)"></textarea>
+      <div class="modal-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button type="submit" class="btn primary">Send report</button></div>
     </form>
   </div>
 

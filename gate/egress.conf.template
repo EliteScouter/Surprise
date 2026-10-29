@@ -1,0 +1,24 @@
+# Outbound allow-list for the sealed app. The app opens TLS to gate:8443 with the
+# real hostname as SNI; the gate reads only that name (never the encrypted
+# content) and forwards it if the host is on this list. Everything else is
+# refused. The app still verifies each service's real certificate end to end.
+map $ssl_preread_server_name $egress_target {
+    oauth2.googleapis.com      oauth2.googleapis.com:443;
+    discord.com                discord.com:443;
+    login.microsoftonline.com  login.microsoftonline.com:443;
+    graph.microsoft.com        graph.microsoft.com:443;
+    api.pwnedpasswords.com     api.pwnedpasswords.com:443;
+    default                    127.0.0.1:9;
+}
+
+server {
+    listen 8443;
+    allow 172.31.89.0/29;
+    deny  all;
+    ssl_preread on;
+    resolver 127.0.0.11 valid=60s ipv6=off;
+    resolver_timeout 5s;
+    proxy_pass $egress_target;
+    proxy_connect_timeout 5s;
+    proxy_timeout 30s;
+}

@@ -2,8 +2,9 @@
 // The only interpolation allowed is ${order}, which comes from the fixed SORTS table.
 import fs from 'node:fs';
 
-const src = fs.readFileSync(new URL('../lib/store.js', import.meta.url), 'utf8');
-const SQL = /\b(SELECT|INSERT|UPDATE|DELETE|REPLACE|WHERE|ORDER BY|LIMIT|VALUES)\b/i;
+const FILES = ['store.js', 'accounts.js'];
+const src = FILES.map(f => fs.readFileSync(new URL('../lib/' + f, import.meta.url), 'utf8')).join('\n');
+const SQL = /\b(SELECT|INSERT|UPDATE|DELETE|REPLACE|WHERE|ORDER BY|LIMIT|VALUES)\b/;   // our SQL is uppercase
 const problems = [];
 
 // template literals that contain SQL and interpolate anything but ${order}
@@ -23,6 +24,7 @@ for (const m of src.matchAll(/\.(query|execute)\(\s*([A-Za-z_$][\w$.]*)\s*[,)]/g
 }
 // ORDER BY may only use the allowlisted sort
 const sorts = src.match(/const SORTS = \{([\s\S]*?)\};/);
+if (!/const order = \{[^}]+\}\[sort\]/.test(src)) problems.push('admin sort allowlist missing');
 if (!sorts) problems.push('SORTS allowlist missing');
 
 if (problems.length) { console.error('SQL safety FAILED:\n  ' + problems.join('\n  ')); process.exit(1); }

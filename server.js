@@ -10,6 +10,10 @@ import { fileURLToPath } from 'node:url';
 import { dnaFromName, rarityOf, worldColorHue } from './public/js/dna.js';
 import { isOffensive } from './public/js/filter.js';
 import { createStore, hasLegacyFile, FileStore, DuplicateError, UnavailableError } from './lib/store.js';
+import { initKeys } from './lib/crypto.js';
+import { Accounts } from './lib/accounts.js';
+import { createAuthRoutes } from './lib/auth-routes.js';
+import { createAdminRoutes } from './lib/admin-routes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
@@ -22,11 +26,17 @@ const MAX_WORLDS = 200000;
 const TRUSTED_PROXIES = (process.env.TRUSTED_PROXIES || '').split(',').map(s => s.trim()).filter(Boolean);
 // Extra origins allowed to POST (e.g. https://cosmonym.app). Same-host requests are always allowed.
 const PUBLIC_ORIGINS = (process.env.PUBLIC_ORIGINS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+const PUBLIC_URL = (process.env.PUBLIC_URL || 'https://cosmonym.app').replace(/\/$/, '');
+const ADMIN_DIR = path.join(__dirname, 'admin');
 const MAX_STREAMS_PER_IP = 6;
 const MAX_STREAMS = 5000;
 
 // ---------------------------------------------------------------- storage
 const store = createStore(process.env, DATA_DIR);
+initKeys(DATA_DIR);
+// Accounts, profiles, reports and the admin panel need the database.
+const accounts = store.kind === 'mariadb' ? new Accounts(store) : null;
+if (accounts) setInterval(() => accounts.purgeExpired().catch(() => {}), 3600000).unref();
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, async () => { await store.close().catch(() => {}); process.exit(0); });
 }
@@ -99,6 +109,7 @@ function publicWorld(w, full = false) {
   const base = {
     id: w.id, name: w.name, discoverer: w.discoverer, createdAt: w.createdAt,
     stars: w.stars, views: w.views, type: w.dna.type, hue: w.hue, rarity: rarityFor(w.name),
+    ownerSlug: w.ownerId ? slugify(w.discoverer) : null,
   };
   if (full) { base.dna = w.dna; base.epitaph = w.epitaph; base.updatedAt = w.updatedAt; }
   return base;
@@ -144,6 +155,10 @@ function ipOf(req) {
   const last = bareIp(hops[hops.length - 1]);   // the hop our proxy itself appended
   return net.isIP(last) ? last : peer;
 }
+// Cookies get Secure / __Host- only when the visitor is on HTTPS, which only our
+// own gate may tell us (NPM sets X-Forwarded-Proto, the gate passes it on).
+const isSecure = req => process.env.COOKIE_SECURE === '1' ||
+  (trusted(bareIp(req.socket.remoteAddress)) && String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'https');
 const ipHash = ip => crypto.createHmac('sha256', IP_SECRET).update(ip).digest('base64url').slice(0, 16);
 
 // ---------------------------------------------------------------- live stream
@@ -259,6 +274,11 @@ function indexHtml(world) {
     .replace(/(<meta name="description" content=")[^"]*/, `$1${desc}`);
 }
 
+const invalidateMap = () => { mapCache = null; };
+const routeCtx = { accounts, store, send, readBody, sanitizeText, isOffensive, limited, broadcast, invalidateMap, publicUrl: PUBLIC_URL, adminDir: ADMIN_DIR };
+const auth = accounts ? createAuthRoutes({ ...routeCtx, publicWorld }) : null;
+const admin = accounts ? createAdminRoutes(routeCtx) : null;
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   const p = url.pathname;
@@ -271,6 +291,9 @@ const server = http.createServer(async (req, res) => {
   }
 
   try {
+    const rctx = { url, p, ip, ipHash: ipHash(ip), secure: isSecure(req) };
+    if (admin && await admin.handle(req, res, rctx)) return;
+    if (auth && await auth.handle(req, res, rctx)) return;
     // ---- API
     if (p === '/api/health') {
       if (!store.ready) return send(res, 503, { ok: false, storage: store.kind });
@@ -337,8 +360,10 @@ const server = http.createServer(async (req, res) => {
         if (!w) return send(res, 404, { error: 'unclaimed' });
         if (limited(ip, 'edit', 60, 3600000)) return send(res, 429, { error: 'Slow down, star-shaper. Try again later.' });
         const body = await readBody(req);
+        const me = auth ? await auth.currentUser(req, rctx.secure) : null;
+        const ownsIt = me && w.ownerId && me.user.id === w.ownerId;
         const tokenHash = crypto.createHash('sha256').update(String(body.token || '')).digest();
-        if (!crypto.timingSafeEqual(tokenHash, Buffer.from(w.tokenHash, 'hex'))) return send(res, 403, { error: 'Only the discoverer can reshape this world.' });
+        if (!ownsIt && !crypto.timingSafeEqual(tokenHash, Buffer.from(w.tokenHash, 'hex'))) return send(res, 403, { error: 'Only the discoverer can reshape this world.' });
         const dna = sanitizeDna(body.dna, w.name);
         if (!dna) return send(res, 400, { error: 'bad dna' });
         const epitaph = sanitizeText(body.epitaph ?? w.epitaph, 140);
@@ -351,6 +376,11 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (p === '/api/world' && req.method === 'POST') {
+      const me = auth ? await auth.currentUser(req, rctx.secure) : null;
+      if (auth && !me) return send(res, 401, { error: 'Sign in to claim worlds.', needAuth: true });
+      // accounts without a confirmed email get a smaller daily allowance
+      if (me && !me.user.emailVerified && limited('u' + me.user.id, 'claim-unverified', 5, 86400000)) return send(res, 429, { error: 'Confirm your email to claim more worlds today.' });
+      if (me && limited('u' + me.user.id, 'claim', 12, 3600000)) return send(res, 429, { error: 'You’ve claimed a lot of worlds this hour. Give the cosmos a moment.' });
       if (limited(ip, 'claim', 12, 3600000)) return send(res, 429, { error: 'You’ve claimed a lot of worlds this hour. Give the cosmos a moment.' });
       // galaxy-wide safety valve against a distributed flood
       if (limited('*', 'claim', 3000, 3600000)) return send(res, 503, { error: 'The galaxy is very busy right now. Try again shortly.' });
@@ -359,7 +389,7 @@ const server = http.createServer(async (req, res) => {
       const id = slugify(name);
       if (id.length < 2) return send(res, 400, { error: 'Names need at least two letters or numbers.' });
       if (!NAME_OK.test(name)) return send(res, 400, { error: 'Names can use letters, numbers, spaces and simple punctuation.' });
-      const discoverer = sanitizeText(body.discoverer, 24) || 'Anonymous';
+      const discoverer = me ? me.user.handle : (sanitizeText(body.discoverer, 24) || 'Anonymous');
       const epitaph = sanitizeText(body.epitaph, 140);
       if (!clean(name)) return send(res, 400, { error: 'That name isn’t available in the cosmos.' });
       if (!clean(discoverer) || !clean(epitaph)) return send(res, 400, { error: 'Let’s keep the cosmos friendly.' });
@@ -370,7 +400,7 @@ const server = http.createServer(async (req, res) => {
       if (!dna) return send(res, 400, { error: 'bad dna' });
       const token = crypto.randomBytes(24).toString('base64url');
       const w = {
-        id, name, discoverer, epitaph, dna,
+        id, name, discoverer, epitaph, dna, ownerId: me ? me.user.id : null,
         hue: worldColorHue(dna), rarity: rarityFor(name),
         createdAt: Date.now(), updatedAt: Date.now(), stars: 0, views: 1,
         tokenHash: crypto.createHash('sha256').update(token).digest('hex'),
@@ -382,12 +412,15 @@ const server = http.createServer(async (req, res) => {
       }
       mapCache = null;
       broadcast('world', publicWorld(saved));
-      return send(res, 201, { world: publicWorld(saved, true), token });
+      // with accounts, ownership lives on the account; the token is only for file mode
+      return send(res, 201, me ? { world: publicWorld(saved, true) } : { world: publicWorld(saved, true), token });
     }
 
     if ((m = p.match(/^\/api\/world\/([a-z0-9-]{1,32})\/star$/)) && req.method === 'POST') {
       if (limited(ip, 'star', 120, 3600000)) return send(res, 429, { error: 'Too many stars!' });
-      const result = await store.toggleStar(m[1], ipHash(ip));
+      const me = auth ? await auth.currentUser(req, rctx.secure) : null;
+      if (auth && !me) return send(res, 401, { error: 'Sign in to star worlds.', needAuth: true });
+      const result = await store.toggleStar(m[1], me ? 'u' + me.user.id : ipHash(ip));
       if (!result) return send(res, 404, { error: 'unclaimed' });
       mapCache = null;
       broadcast('star', { id: m[1], stars: result.stars });
@@ -400,7 +433,7 @@ const server = http.createServer(async (req, res) => {
     if (p.startsWith('/vendor/three/build/') || p.startsWith('/vendor/three/examples/jsm/')) return serveFile(res, p.slice('/vendor/three/'.length), THREE_DIR, 'public, max-age=31536000, immutable');
     if (p.startsWith('/vendor/')) return send(res, 404, 'not found');
 
-    if (p === '/' || p === '/index.html' || p === '/explore') return send(res, 200, indexHtml(null), { 'Content-Type': MIME['.html'] });
+    if (p === '/' || p === '/index.html' || p === '/explore' || p === '/account' || /^\/(u\/[a-z0-9-]{1,32}|auth\/(verify|reset))\/?$/.test(p)) return send(res, 200, indexHtml(null), { 'Content-Type': MIME['.html'] });
     if ((m = p.match(/^\/w\/([a-z0-9-]{1,32})\/?$/))) {
       if (isOffensive(m[1]) || isOffensive(url.searchParams.get('n') || '')) { res.writeHead(302, { Location: '/' }); return res.end(); }
       const world = store.ready ? await store.get(m[1]).catch(() => null) : null;

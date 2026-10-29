@@ -199,6 +199,12 @@ export class Galaxy {
     this.rebuildMarkers();
   }
 
+  removeWorld(id) {
+    if (!this.index.has(id)) return;
+    this.worlds = this.worlds.filter(w => w.id !== id);
+    this.rebuildMarkers();
+  }
+
   setStars(id, stars) {
     const i = this.index.get(id);
     if (i === undefined) return;

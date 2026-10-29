@@ -23,24 +23,25 @@ Listed in build order. Each step depends on the ones above it.
 - [ ] "Report this world" button for visitors
 
 ## 3. Accounts and profiles
-- [ ] Sign-in required to claim (anyone can still browse and grow worlds without an account)
-- [ ] Email + password (strong hashing, email verification, password reset)
-- [ ] Single sign-on: Google, Discord, Apple, Microsoft, GitHub
+- [x] Sign-in required to claim and star (anyone can still browse and grow worlds); one star per account
+- [x] Email + password: scrypt hashing, breached-password check (HIBP k-anonymity), per-account lockout, emails encrypted at rest
+- [x] Email verification and password reset (needs the M365 mail setup to send)
+- [x] Social sign-in code for Google, Microsoft, Discord (each turns on when its keys are in the stack env)
+- [x] Public profile pages `/u/<name>` with worlds, stars and rarest find
+- [x] Worlds claimed before accounts existed attach to the account on sign-in
+- [x] Secure sessions (HttpOnly, SameSite, `__Host-`/Secure on HTTPS), sign out, change name/password, delete account
+- [x] Account pre-hijacking protection: a provider-verified email takes over an unverified look-alike account
+- [ ] **(You)** Create the Google, Microsoft and Discord sign-in apps and the M365 mail app (steps in chat)
 - [ ] Optional 2FA for regular users
-- [ ] Public profile page `/u/<name>`: avatar, worlds discovered, rarest find, stars received
-- [ ] On first sign-in, offer to attach worlds claimed in this browser before accounts existed
-- [ ] Secure session cookies, sign out everywhere, delete my account
 
 ## 4. Admin panel
-- [ ] Hidden URL set by an environment variable, not in the code or repo
-- [ ] Admin login: password + **mandatory authenticator-app 2FA**, no exceptions
-- [ ] Optional IP allowlist (e.g. home/VPN only), short sessions, re-prompt 2FA for destructive actions
-- [ ] Browse/search all claimed worlds: name, discoverer, message, rarity, type, stars, views, date, account
-- [ ] View and manage users: ban, unban, rename
-- [ ] Review queue for reported worlds
-- [ ] Remove or rename a world, edit its message
-- [ ] Stats dashboard: claims per day, sign-ups, active users, rarity breakdown
-- [ ] Every admin action written to the audit log
+- [x] Hidden URL from `ADMIN_PATH`; any other path is a plain 404
+- [x] Password + mandatory authenticator-app 2FA, QR enrollment, code replay protection, encrypted 2FA secrets
+- [x] Only verified emails in `ADMIN_EMAILS` may enroll; optional `ADMIN_ALLOW_IPS`
+- [x] 30-min idle / 8-hour sessions; destructive actions need a 2FA code from the last 15 minutes
+- [x] Overview (counts, 14-day charts, rarity/type breakdown), reports queue, worlds, users, audit log
+- [x] Delete worlds, clear messages, ban/unban (optionally removing their worlds); moderated worlds vanish live
+- [x] "Report this world" button for visitors
 
 ## 5. Leaderboards
 - [ ] Rarest worlds (all time / this week)

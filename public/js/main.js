@@ -10,7 +10,7 @@ import { Space } from './space.js';
 import { Ambience } from './audio.js';
 import { isOffensive } from './filter.js';
 import {
-  dnaFromName, slugify, profile, rarityOf, rarityPercentile, formatPop, worldColorHue, TYPE_INFO, TYPES,
+  dnaFromName, slugify, profile, rarityOf, rarityPercentile, formatPop, worldColorHue, TYPE_INFO, TYPES, RARITY,
   PALETTES, GAS_PALETTES, randomName,
 } from './dna.js';
 
@@ -149,9 +149,15 @@ async function route() {
     }
     return openWorld(m[1], name, { fly: S.mode === 'home' || S.mode === 'explore' });
   }
+  const u = p.match(/^\/u\/([a-z0-9-]{1,32})/);
+  if (u) return showProfile(u[1]);
   const target = p === '/explore' ? 'explore' : 'home';
-  if (S.mode === 'world') return returnToGalaxy(target);
-  if (S.mode !== target) enterGalaxyMode(target);
+  if (S.mode === 'world') await returnToGalaxy(target);
+  else if (S.mode !== target) enterGalaxyMode(target);
+  const t = new URLSearchParams(location.search).get('t');
+  if (p === '/account') { if (S.me) openAccount(); else openAuth('signin', 'Sign in to manage your account.'); }
+  if (p === '/auth/verify') { history.replaceState({}, '', '/'); verifyEmail(t); }
+  if (p === '/auth/reset') { history.replaceState({}, '', '/'); S.resetToken = t; openAuth('reset'); }
 }
 
 // ------------------------------------------------------------------ galaxy modes
@@ -200,7 +206,7 @@ async function resolveWorld(id, nameHint) {
   const name = record?.name || nameHint || id.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
   const origin = dnaFromName(name);
   const dna = record ? { ...origin, ...record.dna } : origin;
-  return { id, name, dna, origin, record, owner: !!(record && S.tokens[id]), dirty: false };
+  return { id, name, dna, origin, record, owner: ownsRecord(record), dirty: false };
 }
 
 async function openWorld(id, nameHint, { fly = false } = {}) {
@@ -282,7 +288,8 @@ function renderDossier(retype) {
   $('#dClass').textContent = `${TYPE_INFO[d.type].glyph}  ${TYPE_INFO[d.type].label} · ${pr.designation}`;
   const disc = $('#dDisc');
   if (w.record) {
-    disc.innerHTML = `<span class="badge">${w.owner ? 'Yours' : 'Claimed'}</span> Discovered by <b>${esc(w.record.discoverer)}</b> · ${ago(w.record.createdAt)}`;
+    const who = w.record.ownerSlug ? `<a href="/u/${esc(w.record.ownerSlug)}" data-link><b>${esc(w.record.discoverer)}</b></a>` : `<b>${esc(w.record.discoverer)}</b>`;
+    disc.innerHTML = `<span class="badge">${w.owner ? 'Yours' : 'Claimed'}</span> Discovered by ${who} · ${ago(w.record.createdAt)}`;
   } else {
     disc.innerHTML = `<span class="badge free">Unclaimed</span> No one has discovered this world yet.`;
   }
@@ -446,7 +453,7 @@ $('#dossierToggle').onclick = () => { $('#dossier').classList.toggle('collapsed'
 // ------------------------------------------------------------------ claim / star / share
 $('#claimBtn').onclick = async () => {
   const w = S.world;
-  if (!w.record) return openClaim();
+  if (!w.record) return requireAccount('Sign in to claim this world. It’s free, and it’s how the galaxy knows it’s yours.', openClaim);
   if (w.owner && w.dirty) {
     try {
       const res = await api.send('PUT', '/api/world/' + w.id, { token: S.tokens[w.id], dna: w.dna });
@@ -464,8 +471,13 @@ function openClaim() {
   $('#claimOrb').style.setProperty('--h', Math.round(worldColorHue(w.dna) * 360));
   $('#claimBy').value = store.get('discoverer', '');
   $('#claimError').textContent = '';
+  // signed in: the discoverer is the account's name
+  $('#claimAs').classList.toggle('hidden', !S.me);
+  $('#claimByWrap').classList.toggle('hidden', !!S.me);
+  $('#claimBy').required = !S.me;
+  if (S.me) $('#claimAs').innerHTML = `Discovered by <b>${esc(S.me.handle)}</b>`;
   $('#claimModal').classList.add('open');
-  setTimeout(() => ($('#claimBy').value ? $('#claimMsg') : $('#claimBy')).focus(), 200);
+  setTimeout(() => (S.me || $('#claimBy').value ? $('#claimMsg') : $('#claimBy')).focus(), 200);
 }
 const closeClaim = () => $('#claimModal').classList.remove('open');
 $('#claimCancel').onclick = closeClaim;
@@ -476,13 +488,13 @@ $('#claimForm').addEventListener('submit', async e => {
   const btn = $('#claimSubmit');
   btn.disabled = true;
   try {
-    const discoverer = $('#claimBy').value.trim();
+    const discoverer = S.me ? S.me.handle : $('#claimBy').value.trim();
     if (isOffensive(discoverer) || isOffensive($('#claimMsg').value)) throw new Error('Let’s keep the cosmos friendly.');
-    store.set('discoverer', discoverer);
+    if (!S.me) store.set('discoverer', discoverer);
     const res = await api.send('POST', '/api/world', {
       name: w.name, discoverer, epitaph: $('#claimMsg').value.trim(), dna: w.dna,
     });
-    S.tokens[res.world.id] = res.token; store.set('tokens', S.tokens);
+    if (res.token) { S.tokens[res.world.id] = res.token; store.set('tokens', S.tokens); }
     w.record = res.world; w.owner = true; w.dirty = false; w.id = res.world.id;
     S.worldsById.set(w.id, res.world);
     galaxy.addWorld(res.world);
@@ -498,6 +510,9 @@ $('#claimForm').addEventListener('submit', async e => {
       closeClaim();
       toast('Someone just beat you to it! Showing their world.');
       openWorld(w.id, w.name);
+    } else if (err.status === 401 && err.body?.needAuth) {
+      closeClaim(); S.me = null; renderAccount();
+      requireAccount('Your session ended. Sign in again to claim.', openClaim);
     } else $('#claimError').textContent = err.message;
   } finally { btn.disabled = false; }
 });
@@ -505,6 +520,7 @@ $('#claimForm').addEventListener('submit', async e => {
 $('#starBtn').onclick = async () => {
   const w = S.world;
   if (!w.record) return toast('Claim this world first, then it can collect stars.');
+  if (S.accounts && !S.me) return requireAccount('Sign in to star worlds you love.', () => $('#starBtn').click());
   try {
     const res = await api.send('POST', `/api/world/${w.id}/star`);
     w.record.stars = res.stars;
@@ -736,12 +752,218 @@ function connectStream() {
     galaxy.setStars(id, stars);
     if (S.world?.id === id && S.world.record) { S.world.record.stars = stars; renderActions(); }
   });
+  es.addEventListener('remove', e => {
+    const { id } = JSON.parse(e.data);
+    galaxy.removeWorld(id);
+    S.stats.worlds = Math.max(0, S.stats.worlds - 1); renderCounts();
+    S.recent = S.recent.filter(w => w.id !== id); renderTicker(S.recent);
+    if (S.mode === 'explore') loadList();
+  });
   es.addEventListener('update', e => {
     const w = JSON.parse(e.data);
     const row = galaxy.index.has(w.id) && galaxy.worlds[galaxy.index.get(w.id)];
     if (row) { row.type = w.type; row.hue = w.hue; galaxy.rebuildMarkers(); }
   });
 }
+
+// ------------------------------------------------------------------ accounts
+const PROVIDER_ICON = {
+  google: '<svg viewBox="0 0 24 24"><path fill="#EA4335" d="M12 10.2v3.9h5.5c-.2 1.3-1.6 3.8-5.5 3.8-3.3 0-6-2.7-6-6.1s2.7-6.1 6-6.1c1.9 0 3.1.8 3.8 1.5l2.6-2.5C16.8 3.2 14.6 2.2 12 2.2 6.6 2.2 2.3 6.6 2.3 12s4.3 9.8 9.7 9.8c5.6 0 9.3-3.9 9.3-9.5 0-.6-.1-1.1-.2-1.6H12z"/></svg>',
+  microsoft: '<svg viewBox="0 0 24 24"><path fill="#F25022" d="M3 3h8.5v8.5H3z"/><path fill="#7FBA00" d="M12.5 3H21v8.5h-8.5z"/><path fill="#00A4EF" d="M3 12.5h8.5V21H3z"/><path fill="#FFB900" d="M12.5 12.5H21V21h-8.5z"/></svg>',
+  discord: '<svg viewBox="0 0 24 24"><path fill="#5865F2" d="M20.3 4.4A19.6 19.6 0 0 0 15.4 3l-.6 1.3a18 18 0 0 0-5.6 0L8.6 3a19.6 19.6 0 0 0-4.9 1.5C.6 9.1-.3 13.7.2 18.2a19.8 19.8 0 0 0 6 3l1.3-2a12.7 12.7 0 0 1-2-1l.5-.4a14.1 14.1 0 0 0 12.1 0l.5.4c-.6.4-1.3.7-2 1l1.3 2a19.7 19.7 0 0 0 6-3c.6-5.2-.9-9.8-3.6-13.8zM8.3 15.4c-1.2 0-2.2-1.1-2.2-2.4s1-2.4 2.2-2.4 2.2 1.1 2.2 2.4-1 2.4-2.2 2.4zm7.4 0c-1.2 0-2.2-1.1-2.2-2.4s1-2.4 2.2-2.4 2.2 1.1 2.2 2.4-1 2.4-2.2 2.4z"/></svg>',
+};
+
+function ownsRecord(record) {
+  return !!(record && (S.tokens[record.id] || (S.me && record.ownerSlug && record.ownerSlug === S.me.slug)));
+}
+
+async function loadMe() {
+  try {
+    const r = await api.get('/api/auth/me');
+    S.accounts = true; S.me = r.user; S.providers = r.providers || []; S.mail = r.mail;
+  } catch { S.accounts = false; S.me = null; S.providers = []; }
+  renderAccount();
+}
+
+function renderAccount() {
+  const b = $('#accountBtn');
+  b.classList.toggle('hidden', !S.accounts);
+  b.innerHTML = S.me ? `<span class="av">${esc(S.me.handle[0].toUpperCase())}</span> <span class="label">${esc(S.me.handle)}</span>` : 'Sign in';
+  $('#menuProfile').setAttribute('href', S.me ? `/u/${S.me.slug}` : '/');
+  if (S.world?.record) { S.world.owner = ownsRecord(S.world.record); if (S.mode === 'world') { renderDossier(false); renderActions(); } }
+}
+
+$('#accountBtn').onclick = e => {
+  e.stopPropagation();
+  if (!S.me) return openAuth('signin');
+  $('#accountMenu').classList.toggle('open');
+};
+document.addEventListener('click', e => { if (!e.target.closest('.account-wrap')) $('#accountMenu').classList.remove('open'); });
+$('#accountMenu').addEventListener('click', () => $('#accountMenu').classList.remove('open'));
+$('#menuSignOut').onclick = async () => {
+  await api.send('POST', '/api/auth/logout').catch(() => {});
+  S.me = null; renderAccount(); toast('Signed out. See you among the stars.');
+};
+
+// Runs `then` right away if signed in, otherwise after signing in.
+function requireAccount(reason, then) {
+  if (!S.accounts || S.me) return then();
+  openAuth('signin', reason, then);
+}
+
+const AUTH_COPY = {
+  signin: ['Welcome back', 'Sign in'], signup: ['Join the galaxy', 'Create account'],
+  forgot: ['Reset your password', 'Email me a link'], reset: ['Choose a new password', 'Save password'],
+};
+function openAuth(mode, reason = '', then = null) {
+  S.afterAuth = then;
+  setAuthMode(mode, reason);
+  $('#socialBtns').innerHTML = S.providers.map(p =>
+    `<a href="/api/auth/oauth/${p.id}/start?return=${encodeURIComponent(location.pathname)}">${PROVIDER_ICON[p.id] || ''} Continue with ${esc(p.label)}</a>`).join('');
+  $('#authModal').classList.add('open');
+  setTimeout(() => (mode === 'signup' ? $('#authHandle') : mode === 'reset' ? $('#authPassword') : $('#authEmail')).focus(), 200);
+}
+function setAuthMode(mode, reason) {
+  const f = $('#authForm');
+  f.dataset.mode = mode;
+  $('#authTitle').textContent = AUTH_COPY[mode][0];
+  $('#authSubmit').textContent = AUTH_COPY[mode][1];
+  if (reason != null) $('#authSub').textContent = reason || (mode === 'forgot' ? 'We’ll email you a link to choose a new password.' : '');
+  $('#authError').textContent = '';
+  $('#authPassword').autocomplete = mode === 'signin' ? 'current-password' : 'new-password';
+}
+const closeAuth = () => { $('#authModal').classList.remove('open'); $('#authPassword').value = ''; };
+$('#authForm').addEventListener('click', e => {
+  const a = e.target.closest('[data-auth]');
+  if (a) { e.preventDefault(); setAuthMode(a.dataset.auth, a.dataset.auth === 'signup' ? 'One account for every world you discover.' : ''); }
+});
+const closeModal = m => { m.classList.remove('open'); if (m.id === 'accountModal' && location.pathname === '/account') history.replaceState({}, '', '/'); };
+document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => closeModal(b.closest('.modal'))));
+$$('.modal').forEach(m => m.addEventListener('click', e => { if (e.target === m) closeModal(m); }));
+
+$('#authForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const mode = $('#authForm').dataset.mode;
+  const btn = $('#authSubmit'); btn.disabled = true; $('#authError').textContent = '';
+  const email = $('#authEmail').value.trim(), password = $('#authPassword').value, handle = $('#authHandle').value.trim();
+  try {
+    if (mode === 'forgot') {
+      const r = await api.send('POST', '/api/auth/forgot', { email });
+      $('#authSub').textContent = r.mail ? 'If that email has an account, a reset link is on its way. Check your inbox.' : 'Email isn’t set up yet, so resets aren’t available. Try signing in with Google, Microsoft or Discord.';
+      return;
+    }
+    if (mode === 'signup' && isOffensive(handle)) throw new Error('That name isn’t available.');
+    const r = mode === 'reset' ? await api.send('POST', '/api/auth/reset', { token: S.resetToken, password })
+      : await api.send('POST', `/api/auth/${mode === 'signup' ? 'signup' : 'login'}`, { email, password, handle });
+    await loadMe();
+    closeAuth();
+    toast(mode === 'signup' ? `✦ Welcome to the galaxy, <b>${esc(S.me.handle)}</b>${S.mail ? '. Check your email to confirm your address.' : ''}` : mode === 'reset' ? 'Password changed. You’re signed in.' : `✦ Welcome back, <b>${esc(S.me.handle)}</b>`, 4200);
+    attachLegacyWorlds();
+    const next = S.afterAuth; S.afterAuth = null;
+    if (next) setTimeout(next, 300);
+    void r;
+  } catch (err) {
+    $('#authError').textContent = err.message;
+  } finally { btn.disabled = false; }
+});
+
+// Worlds claimed before accounts existed (owned by a token in this browser) join the account.
+async function attachLegacyWorlds() {
+  const claims = Object.entries(S.tokens).map(([id, token]) => ({ id, token }));
+  if (!S.me || !claims.length) return;
+  try {
+    const { attached } = await api.send('POST', '/api/account/attach', { claims });
+    if (attached.length) toast(`✦ ${attached.length} world${attached.length === 1 ? '' : 's'} you discovered earlier ${attached.length === 1 ? 'is' : 'are'} now on your account`, 4500);
+  } catch { /* not critical */ }
+}
+
+async function verifyEmail(token) {
+  try { await api.send('POST', '/api/auth/verify', { token }); toast('✦ Email confirmed. Thanks!'); await loadMe(); }
+  catch (e) { toast(esc(e.message)); }
+}
+
+function openAccount() {
+  const me = S.me;
+  $('#acctHandle').value = me.handle;
+  $('#verifyNote').classList.toggle('hidden', me.emailVerified || !S.mail);
+  $('#curPwWrap').classList.toggle('hidden', !me.hasPassword);
+  $('#newPwLabel').textContent = me.hasPassword ? 'New password' : 'Set a password (optional)';
+  $('#pwSubmit').textContent = me.hasPassword ? 'Change password' : 'Set password';
+  $('#delPassword').classList.toggle('hidden', !me.hasPassword);
+  $('#acctProviders').textContent = me.providers?.length ? `Signed in with: ${me.providers.map(p => p[0].toUpperCase() + p.slice(1)).join(', ')}` : '';
+  $('#acctError').textContent = '';
+  $('#accountModal').classList.add('open');
+}
+const acctErr = e => { $('#acctError').textContent = e.message; };
+$('#handleForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  try { await api.send('POST', '/api/account/handle', { handle: $('#acctHandle').value.trim() }); await loadMe(); toast('✦ Name updated across your worlds'); }
+  catch (err) { acctErr(err); }
+});
+$('#passwordForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  try {
+    await api.send('POST', '/api/account/password', { current: $('#acctCurrent').value, password: $('#acctNew').value });
+    $('#acctCurrent').value = $('#acctNew').value = ''; await loadMe(); openAccount(); toast('Password saved. Other devices were signed out.');
+  } catch (err) { acctErr(err); }
+});
+$('#resendVerify').onclick = async e => {
+  e.preventDefault();
+  try { await api.send('POST', '/api/auth/resend-verify'); toast('Sent! Check your inbox.'); } catch (err) { acctErr(err); }
+};
+$('#deleteForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  try {
+    await api.send('POST', '/api/account/delete', { confirm: $('#delConfirm').value.trim(), password: $('#delPassword').value });
+    $('#accountModal').classList.remove('open'); S.me = null; renderAccount(); toast('Your account was deleted.');
+  } catch (err) { acctErr(err); }
+});
+
+// ------------------------------------------------------------------ profiles
+async function showProfile(slug) {
+  if (S.mode === 'world') await returnToGalaxy('profile'); else setMode('profile');
+  $('#pName').textContent = '…'; $('#pWorlds').innerHTML = ''; $('#pStats').innerHTML = ''; $('#pMeta').textContent = '';
+  try {
+    const { user, worlds, stars } = await api.get('/api/users/' + slug);
+    document.title = `${user.handle} · COSMONYM`;
+    $('#pAvatar').textContent = user.handle[0].toUpperCase();
+    $('#pName').textContent = user.handle;
+    $('#pMeta').textContent = `Explorer since ${new Date(user.createdAt).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}`;
+    const order = ['Mythic', 'Legendary', 'Epic', 'Rare', 'Uncommon', 'Common'];
+    const best = worlds.map(w => w.rarity).sort((a, b) => order.indexOf(a) - order.indexOf(b))[0];
+    $('#pStats').innerHTML = `<div><b>${worlds.length}</b><span>worlds</span></div><div><b>${stars}</b><span>stars</span></div><div><b>${esc(best || '—')}</b><span>rarest</span></div>`;
+    const color = r => (RARITY.find(x => x.name === r) || RARITY[0]).color;
+    $('#pWorlds').innerHTML = worlds.length ? worlds.map(w => `
+      <div class="pcard glass" data-id="${esc(w.id)}">
+        <i class="orb" style="--h:${Math.round(w.hue * 360)}"></i>
+        <h4>${esc(w.name)}</h4>
+        <div class="rar" style="color:${color(w.rarity)}">✦ ${esc(w.rarity)} · ${esc(TYPE_INFO[w.type]?.label || '')}</div>
+        <div class="meta"><span>${ago(w.createdAt)}</span><span>★ ${w.stars}</span></div>
+      </div>`).join('')
+      : `<div class="pempty glass">${S.me?.slug === slug ? 'You haven’t claimed a world yet. Type a name on the home page and make one yours.' : 'No worlds discovered yet.'}</div>`;
+  } catch {
+    $('#pName').textContent = 'Explorer not found';
+    $('#pWorlds').innerHTML = '<div class="pempty glass">No explorer goes by that name.</div>';
+  }
+}
+$('#pWorlds').addEventListener('click', e => { const c = e.target.closest('[data-id]'); if (c) navigate('/w/' + c.dataset.id); });
+
+// ------------------------------------------------------------------ reports
+$('#reportBtn').onclick = () => {
+  if (!S.world.record) return toast('Only claimed worlds can be reported.');
+  if (!S.accounts) return toast('Reporting isn’t available right now.');
+  $('#reportForm').reset();
+  $('#reportModal').classList.add('open');
+};
+$('#reportForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const reason = new FormData($('#reportForm')).get('reason');
+  try {
+    await api.send('POST', `/api/world/${S.world.id}/report`, { reason, note: $('#reportNote').value.trim() });
+    $('#reportModal').classList.remove('open');
+    toast('Thanks. A moderator will take a look.');
+  } catch (err) { toast(esc(err.message)); }
+});
 
 // ------------------------------------------------------------------ keyboard
 addEventListener('keydown', e => {
@@ -819,7 +1041,7 @@ function frame() {
     applyViewOffset(dt);
   } else {
     galaxy.update(dt);
-    if (S.mode === 'home' && !S.flight) {
+    if ((S.mode === 'home' || S.mode === 'profile') && !S.flight) {
       S.homeAngle += dt * 0.025;
       homeCameraPos(S.homeAngle, galaxyCam.position);
       galaxyControls.target.set(0, -10, 0);
@@ -854,7 +1076,16 @@ async function boot() {
     api.get('/api/stats').then(r => { S.stats = r; }).catch(() => {}),
     api.get('/api/worlds?sort=new&limit=30').then(r => { S.recent = r.worlds; }).catch(() => {}),
   ];
+  tasks.push(loadMe());
   await Promise.all(tasks);
+  const authFlag = new URLSearchParams(location.search).get('auth');
+  if (authFlag) {
+    const q = new URLSearchParams(location.search); q.delete('auth');
+    history.replaceState({}, '', location.pathname + (q.toString() ? '?' + q : ''));
+    const msg = { ok: S.me ? `✦ Welcome, <b>${esc(S.me.handle)}</b>` : '', failed: 'Sign-in didn’t work. Please try again.', cancelled: 'Sign-in cancelled.', expired: 'That sign-in took too long. Please try again.', banned: 'This account has been suspended.' }[authFlag];
+    if (msg) setTimeout(() => toast(msg, 4200), 900);
+    if (authFlag === 'ok') attachLegacyWorlds();
+  }
   renderCounts();
   renderTicker(S.recent);
   connectStream();

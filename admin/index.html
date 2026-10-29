@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="referrer" content="no-referrer" />
+  <title>Cosmonym Control</title>
+  <link rel="stylesheet" href="__BASE__/admin.css" />
+</head>
+<body data-base="__BASE__">
+  <!-- sign in -->
+  <main id="login" class="center hidden">
+    <form class="card narrow" id="loginForm" autocomplete="on">
+      <div class="brand">COSMONYM <span>control</span></div>
+      <h1>Sign in</h1>
+      <label>Email<input type="email" id="email" autocomplete="username" required /></label>
+      <label>Password<input type="password" id="password" autocomplete="current-password" required /></label>
+      <button class="primary" type="submit">Continue</button>
+      <p class="error" id="loginError"></p>
+    </form>
+    <form class="card narrow hidden" id="totpForm" autocomplete="off">
+      <div class="brand">COSMONYM <span>control</span></div>
+      <h1 id="totpTitle">Two-factor code</h1>
+      <div id="enroll" class="hidden">
+        <p class="muted">Scan this with your authenticator app (Microsoft Authenticator, Google Authenticator, 1Password, Authy…). 2FA is required for every admin.</p>
+        <img id="qr" alt="Authenticator QR code" width="220" height="220" />
+        <p class="muted small">Can’t scan? Enter this key manually:</p>
+        <code id="secret"></code>
+      </div>
+      <label>6-digit code<input id="code" inputmode="numeric" pattern="[0-9 ]{6,7}" maxlength="7" autocomplete="one-time-code" required /></label>
+      <button class="primary" type="submit">Verify</button>
+      <p class="error" id="totpError"></p>
+    </form>
+  </main>
+
+  <!-- panel -->
+  <div id="app" class="hidden">
+    <header>
+      <div class="brand">COSMONYM <span>control</span></div>
+      <nav id="tabs">
+        <button data-tab="overview" class="active">Overview</button>
+        <button data-tab="reports">Reports <b id="reportBadge"></b></button>
+        <button data-tab="worlds">Worlds</button>
+        <button data-tab="users">Users</button>
+        <button data-tab="audit">Audit log</button>
+      </nav>
+      <div class="who"><span id="who"></span><span id="sudo" class="pill"></span><button id="logout" class="ghost">Sign out</button></div>
+    </header>
+
+    <section id="overview" class="tab">
+      <div class="cards" id="cards"></div>
+      <div class="grid2">
+        <div class="card"><h3>Claims, last 14 days</h3><div class="bars" id="claimsChart"></div></div>
+        <div class="card"><h3>Sign-ups, last 14 days</h3><div class="bars" id="usersChart"></div></div>
+        <div class="card"><h3>Rarity</h3><div id="rarityList" class="kv"></div></div>
+        <div class="card"><h3>World types</h3><div id="typeList" class="kv"></div></div>
+      </div>
+    </section>
+
+    <section id="reports" class="tab hidden">
+      <div class="toolbar"><select id="reportStatus"><option value="open">Open</option><option value="closed">Closed</option></select></div>
+      <div id="reportList" class="list"></div>
+    </section>
+
+    <section id="worlds" class="tab hidden">
+      <div class="toolbar">
+        <input id="worldQ" placeholder="Search name, discoverer or message" />
+        <select id="worldSort"><option value="new">Newest</option><option value="old">Oldest</option><option value="stars">Most stars</option><option value="views">Most views</option></select>
+      </div>
+      <table><thead><tr><th>World</th><th>Discoverer</th><th>Message</th><th>Rarity</th><th>★</th><th>Views</th><th>Claimed</th><th></th></tr></thead><tbody id="worldRows"></tbody></table>
+      <button class="ghost more" id="worldMore">Load more</button>
+    </section>
+
+    <section id="users" class="tab hidden">
+      <div class="toolbar"><input id="userQ" placeholder="Search name, or exact email" /></div>
+      <table><thead><tr><th>User</th><th>Email</th><th>Sign-in</th><th>Worlds</th><th>Joined</th><th>Last seen</th><th>Status</th><th></th></tr></thead><tbody id="userRows"></tbody></table>
+      <button class="ghost more" id="userMore">Load more</button>
+    </section>
+
+    <section id="audit" class="tab hidden">
+      <table><thead><tr><th>When</th><th>Admin</th><th>Action</th><th>Target</th><th>Detail</th></tr></thead><tbody id="auditRows"></tbody></table>
+    </section>
+  </div>
+
+  <!-- dialogs -->
+  <dialog id="sudoDialog">
+    <form method="dialog" id="sudoForm">
+      <h3>Confirm it’s you</h3>
+      <p class="muted">Enter a code from your authenticator. You won’t be asked again for 15 minutes.</p>
+      <input id="sudoCode" inputmode="numeric" maxlength="7" autocomplete="one-time-code" />
+      <p class="error" id="sudoError"></p>
+      <div class="row"><button value="cancel" class="ghost" formnovalidate>Cancel</button><button class="primary" id="sudoOk" value="ok">Confirm</button></div>
+    </form>
+  </dialog>
+  <dialog id="confirmDialog">
+    <form method="dialog">
+      <h3 id="confirmTitle"></h3>
+      <p class="muted" id="confirmText"></p>
+      <label id="reasonWrap">Reason (kept in the audit log)<input id="confirmReason" maxlength="200" /></label>
+      <label id="extraWrap" class="check hidden"><input type="checkbox" id="confirmExtra" /> <span id="extraText"></span></label>
+      <div class="row"><button value="cancel" class="ghost">Cancel</button><button value="ok" class="danger" id="confirmOk">Confirm</button></div>
+    </form>
+  </dialog>
+  <div class="toast" id="toast"></div>
+  <script src="__BASE__/admin.js"></script>
+</body>
+</html>

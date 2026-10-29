@@ -52,6 +52,11 @@ map "$from_proxy:$npm_peer_is_cloudflare" $client_ip {
     "1:0"   $http_x_real_ip;          # straight to NPM, bypassing Cloudflare: who NPM saw
     default $remote_addr;             # straight to the gate (LAN)
 }
+# Only NPM may say the visitor used HTTPS; anyone else is plain HTTP.
+map $from_proxy $forward_proto {
+    1       $http_x_forwarded_proto;
+    default http;
+}
 map $client_ip $forward_ip {
     ""      $remote_addr;
     default $client_ip;

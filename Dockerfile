@@ -10,6 +10,7 @@ RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force \
  && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /opt/yarn* /usr/local/bin/yarn /usr/local/bin/yarnpkg /usr/local/lib/node_modules/corepack /usr/local/bin/corepack
 COPY server.js ./
 COPY lib ./lib
+COPY admin ./admin
 COPY public ./public
 RUN mkdir -p /data && chown node:node /data
 USER node

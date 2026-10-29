@@ -72,6 +72,23 @@ services:
       DB_MIGRATE_USER: ${DB_MIGRATE_USER:-cosmonym_migrate}
       DB_MIGRATE_PASSWORD: ${DB_MIGRATE_PASSWORD:-}
       DB_TLS: ${DB_TLS:-off}
+      PUBLIC_URL: ${PUBLIC_URL:-https://cosmonym.app}
+      # Admin panel: a long random path (20-64 chars) and who may enroll.
+      ADMIN_PATH: ${ADMIN_PATH:-}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      ADMIN_ALLOW_IPS: ${ADMIN_ALLOW_IPS:-}
+      # Social sign-in: each provider turns on when both values are set.
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
+      MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
+      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:-}
+      # Email via Microsoft Graph, sending as one shared mailbox.
+      MAIL_TENANT_ID: ${MAIL_TENANT_ID:-}
+      MAIL_CLIENT_ID: ${MAIL_CLIENT_ID:-}
+      MAIL_CLIENT_SECRET: ${MAIL_CLIENT_SECRET:-}
+      MAIL_FROM: ${MAIL_FROM:-noreply@cosmonym.app}
     tmpfs:
       - /tmp:size=16m,mode=1777
     volumes:
