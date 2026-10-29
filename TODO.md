@@ -98,12 +98,16 @@ Found by attacking the running app, then verified blocked:
 - [ ] Automated injection tests (sqlmap-style payloads) against every endpoint before launch
 
 ### 2. Keep attackers out of the infrastructure
-- [ ] Reverse proxy accepts traffic **only from Cloudflare IP ranges**, and overwrites `CF-Connecting-IP`/`X-Forwarded-For` instead of passing client copies through
-- [ ] Set `TRUSTED_PROXIES` (reverse proxy IP) and `PUBLIC_ORIGINS=https://cosmonym.app` in the stack env
-- [ ] Bind port 8089 so only the reverse proxy can reach it (firewall or shared Docker network, no LAN-wide exposure)
-- [ ] Egress firewall for the container (`DOCKER-USER` iptables chain): allow only MariaDB:3306 and DNS; block the rest of 10.10.20.0/24, including Portainer (9443) and the Docker hosts
-- [ ] Dedicated Docker network for Cosmonym, not shared with other stacks
+- [ ] **(You, router/NPM)** Only Cloudflare IP ranges may reach the 443 port-forward, so nobody can bypass Cloudflare and fake `CF-Connecting-IP`
+- [x] Gate container (nginx) is the only exposed piece; it believes `CF-Connecting-IP` only from NPM (10.0.101.1) and overwrites it for everyone else
+- [x] App trusts forwarded IPs only from the gate's private subnet; `PUBLIC_ORIGINS` defaults to https://cosmonym.app
+- [ ] Flip the gate to NPM-only (`GATE_ALLOW=10.0.101.1` in the stack env) once cosmonym.app is live in NPM
+- [x] App container has no network route out at all (internal-only Docker network); verified it can't reach Portainer, the Docker agent, NPM, the LAN or the internet
+- [ ] When MariaDB arrives: a relay that allows exactly one destination (the DB on 3306)
+- [x] Dedicated Docker networks for Cosmonym, not shared with other stacks
 - [ ] Portainer and the Docker API never reachable from the internet; Portainer admin behind VPN + 2FA
+- [ ] Portainer agent on E-Docker01 (:9001) listens on every interface; restrict it to the Portainer host (10.10.20.26) with a host firewall rule
+- [ ] Other stacks on E-Docker01 publish ports on 0.0.0.0; give them the same gate/internal-network treatment
 - [ ] No Docker socket mounted into the app container (already true; keep it that way)
 - [ ] Rotate the Portainer API token used for deploys; store it outside shell profiles
 - [ ] Host patching schedule for E-Docker01 and the DB nodes; rebuild the image monthly for base-image patches
