@@ -1,34 +1,70 @@
-# Portainer stack. The image is built on the Docker host from this repo
-# (docker build -t worldseed:latest .) since Portainer's agent cannot run
-# compose builds; the stack then just runs it.
+# Portainer stack. Both images are built on the Docker host from this repo
+# (Portainer's agent cannot run compose builds):
+#   docker build -t worldseed:latest .
+#   docker build -t cosmonym-gate:latest -f gate/Dockerfile .
+#
+# Network layout:
+#   internet -> Cloudflare -> NPM -> [gate :8089] -> (internal network) -> [app]
+# The app has no route to the LAN or the internet; only the gate can reach it.
+
+x-hardening: &hardening
+  restart: unless-stopped
+  read_only: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
 services:
-  worldseed:
+  gate:
+    <<: *hardening
+    image: cosmonym-gate:latest
+    pull_policy: never
+    container_name: cosmonym-gate
+    environment:
+      # "all" while testing on the LAN; set to the reverse proxy IP (10.0.101.1)
+      # once cosmonym.app is live so nothing else can reach the site.
+      GATE_ALLOW: ${GATE_ALLOW:-all}
+      NPM_PROXY: ${NPM_PROXY:-10.0.101.1}
+    tmpfs:
+      - /tmp:size=16m,uid=101,gid=101
+      - /etc/nginx/conf.d:size=1m,uid=101,gid=101
+    ports:
+      - "8089:8080"
+    networks:
+      - edge
+      - internal
+    mem_limit: 128m
+    pids_limit: 64
+    cpus: 1
+    depends_on:
+      - app
+
+  app:
+    <<: *hardening
     image: worldseed:latest
     pull_policy: never
-    container_name: worldseed
-    restart: unless-stopped
+    container_name: cosmonym-app
+    user: "1000:1000"
     environment:
       NODE_ENV: production
       PORT: "3000"
       DATA_DIR: /data
-      # Set these once the reverse proxy is in front (see TODO.md, Security):
-      # the proxy's IP/CIDR, and the public site origin.
-      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
-      PUBLIC_ORIGINS: ${PUBLIC_ORIGINS:-}
-    volumes:
-      - worldseed-data:/data
-    ports:
-      - "8089:3000"
-    # The app only ever writes to /data. Everything else is read-only, no Linux
-    # capabilities, and hard resource ceilings so a bug or flood can't starve the host.
-    user: "1000:1000"
-    read_only: true
+      # Only the gate (the sole other member of the internal network) may vouch
+      # for a visitor's IP.
+      TRUSTED_PROXIES: 172.31.89.0/29
+      PUBLIC_ORIGINS: ${PUBLIC_ORIGINS:-https://cosmonym.app}
     tmpfs:
       - /tmp:size=16m,mode=1777
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
+    volumes:
+      - worldseed-data:/data
+    networks:
+      - internal
     mem_limit: 768m
     pids_limit: 128
     cpus: 2
@@ -38,11 +74,14 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+
+networks:
+  edge:
+  internal:
+    internal: true          # no gateway: nothing on it can reach the LAN or internet
+    ipam:
+      config:
+        - subnet: 172.31.89.0/29
 
 volumes:
   worldseed-data:

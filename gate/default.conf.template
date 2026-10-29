@@ -1,0 +1,59 @@
+# Cosmonym gate: the only thing exposed to the network. It decides who may
+# talk to the app, establishes the real visitor IP, and shields the app from
+# slow or oversized requests. The app itself sits on an internal-only network.
+#
+# Env (set in the Portainer stack):
+#   GATE_ALLOW  who may connect: "all" while testing on the LAN, or the reverse
+#               proxy's address (e.g. 10.0.101.1) once the domain is live
+#   NPM_PROXY   the reverse proxy whose CF-Connecting-IP header we believe
+
+# Only the reverse proxy may vouch for a visitor's IP; anyone else is who they are.
+geo $from_proxy {
+    default      0;
+    ${NPM_PROXY} 1;
+}
+map $from_proxy $client_ip {
+    1       $http_cf_connecting_ip;
+    default $remote_addr;
+}
+map $client_ip $forward_ip {
+    ""      $remote_addr;
+    default $client_ip;
+}
+
+log_format gate '$remote_addr via=$from_proxy client=$forward_ip "$request" $status $body_bytes_sent $request_time';
+
+server {
+    listen 8080;
+    server_tokens off;
+    access_log /dev/stdout gate;
+
+    allow 127.0.0.1;
+    allow ${GATE_ALLOW};
+    deny  all;
+
+    client_max_body_size   32k;
+    client_header_timeout  10s;
+    client_body_timeout    10s;
+    send_timeout           30s;
+    large_client_header_buffers 4 8k;
+
+    location = /api/stream {
+        proxy_pass http://app:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 1h;
+        include /etc/nginx/proxy_headers.conf;
+    }
+
+    location / {
+        proxy_pass http://app:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 30s;
+        include /etc/nginx/proxy_headers.conf;
+    }
+}

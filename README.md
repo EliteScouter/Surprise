@@ -24,7 +24,7 @@ npm install
 npm start          # http://localhost:3000
 ```
 
-Or with Docker: `docker build -t worldseed:latest . && docker compose up -d` (serves on port 8089, data in the `worldseed-data` volume).
+Or with Docker: `docker build -t worldseed:latest . && docker build -t cosmonym-gate:latest -f gate/Dockerfile . && docker compose up -d` (serves on port 8089, data in the `worldseed-data` volume).
 
 Zero runtime dependencies besides three.js; the server is plain Node.
 
