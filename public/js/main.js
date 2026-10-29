@@ -32,7 +32,7 @@ let renderer;
 try {
   renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
 } catch (e) {
-  document.body.innerHTML = '<div class="noscript">WORLDSEED needs WebGL to grow worlds. Try a newer browser or enable hardware acceleration.</div>';
+  document.body.innerHTML = '<div class="noscript">COSMONYM needs WebGL to grow worlds. Try a newer browser or enable hardware acceleration.</div>';
   throw e;
 }
 let pixelRatio = Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2);
@@ -227,7 +227,7 @@ async function openWorld(id, nameHint, { fly = false } = {}) {
   S.flight = { cam: planetCam, controls: planetControls, from: planetCam.position.clone(), to: new THREE.Vector3(0.7, 0.55, w.dna.rings > 0.01 ? 6.4 : 4.6).multiplyScalar(Math.max(1, 0.8 / planetCam.aspect)), fromT: new THREE.Vector3(), toT: new THREE.Vector3(), t: 0, dur: 5.5 };
   runFormingCaptions(w.dna);
   setTimeout(() => audio.chime('form'), 950);
-  document.title = `${w.name} — WORLDSEED`;
+  document.title = `${w.name} · COSMONYM`;
 }
 
 function applyWorld(genesis = false, preview = false) {
@@ -290,7 +290,7 @@ function renderDossier(retype) {
     ['Day', `${pr.dayHours.toFixed(1)} <small>hours</small>`],
     ['Year', `${pr.yearDays} <small>days</small>`],
     ['Moons', `${Math.round(d.moons)}${d.rings > 0.01 ? ' <small>+ rings</small>' : ''}`],
-    ['Water', isGas ? '<small>—</small>' : `${Math.round((d.type === 'lava' || d.type === 'barren' ? 0 : d.seaLevel) * 100)}<small>%</small>`],
+    ['Water', isGas ? '<small>n/a</small>' : `${Math.round((d.type === 'lava' || d.type === 'barren' ? 0 : d.seaLevel) * 100)}<small>%</small>`],
     ['Population', pr.population ? `${formatPop(pr.population)}` : '<small>None detected</small>'],
     ['Atmosphere', `<small>${pr.atmo}</small>`, true],
     ['Habitability', `${hab}<small>%</small><div class="bar"><i style="width:${hab}%; background-position:${-300 + hab * 3}px 0"></i></div>`, true],
@@ -327,7 +327,7 @@ function renderActions() {
   else { claim.classList.add('taken'); claim.querySelector('span').textContent = `Claimed by ${w.record.discoverer}`; }
   const star = $('#starBtn');
   star.classList.toggle('on', S.starred.has(w.id));
-  $('#starCount').textContent = w.record ? w.record.stars : '—';
+  $('#starCount').textContent = w.record ? w.record.stars : '0';
   star.title = w.record ? 'Star this world' : 'Claim this world to collect stars';
 }
 
@@ -375,8 +375,8 @@ function renderForge() {
     </div>`;
   body.classList.toggle('locked', !canEdit());
   $('#forgeNote').textContent = canEdit()
-    ? (w.record ? 'You discovered this world, so you can reshape it. Save when you’re happy.' : 'Reshape this world before you claim it. Its name decides where it begins — you decide where it ends up.')
-    : `Discovered by ${w.record.discoverer} — only they can reshape it. Grow your own world from any name.`;
+    ? (w.record ? 'You discovered this world, so you can reshape it. Save when you’re happy.' : 'Reshape this world before you claim it. Its name decides where it begins. You decide where it ends up.')
+    : `Discovered by ${w.record.discoverer}. Only they can reshape it. Grow your own world from any name.`;
   $$('#forgeBody input[type=range]').forEach(syncSlider);
 }
 
@@ -497,7 +497,7 @@ $('#claimForm').addEventListener('submit', async e => {
 
 $('#starBtn').onclick = async () => {
   const w = S.world;
-  if (!w.record) return toast('Claim this world first — then it can collect stars.');
+  if (!w.record) return toast('Claim this world first, then it can collect stars.');
   try {
     const res = await api.send('POST', `/api/world/${w.id}/star`);
     w.record.stars = res.stars;
@@ -515,10 +515,10 @@ function shareUrl() {
 $('#shareBtn').onclick = async () => {
   const w = S.world;
   const rar = rarityOf(w.dna).name;
-  const text = `I found ${w.name} — a ${rar} ${TYPE_INFO[w.dna.type].label.toLowerCase()} on WORLDSEED. What does your name grow into?`;
+  const text = `I found ${w.name}, a ${rar} ${TYPE_INFO[w.dna.type].label.toLowerCase()} on COSMONYM. What does your name grow into?`;
   const url = shareUrl();
   if (navigator.share && isMobile) { try { await navigator.share({ title: w.name, text, url }); return; } catch { /* cancelled */ } }
-  try { await navigator.clipboard.writeText(`${text} ${url}`); toast('✦ Link copied — send it to someone'); }
+  try { await navigator.clipboard.writeText(`${text} ${url}`); toast('✦ Link copied. Send it to someone!'); }
   catch { prompt('Copy this link', url); }
 };
 
@@ -542,7 +542,7 @@ $('#postcardBtn').onclick = async () => {
   await document.fonts.ready;
   const rar = rarityOf(d), pr = profile(w.name, d);
   g.fillStyle = '#8fd3ff'; g.font = '500 22px Unbounded'; g.letterSpacing = '8px';
-  g.fillText('WORLDSEED', 90, 110);
+  g.fillText('COSMONYM', 90, 110);
   g.letterSpacing = '0px';
   g.fillStyle = rar.color; g.font = '500 22px "JetBrains Mono"';
   g.fillText(`✦ ${rar.name.toUpperCase()} · ${TYPE_INFO[d.type].label.toUpperCase()}`, 90, 330);
@@ -551,7 +551,7 @@ $('#postcardBtn').onclick = async () => {
   while (g.measureText(w.name).width > 760 && size > 40) { size -= 4; g.font = `500 ${size}px Unbounded`; }
   g.fillText(w.name, 84, 330 + size + 10);
   g.fillStyle = '#b8bfd8'; g.font = '400 26px Inter';
-  const by = w.record ? `Discovered by ${w.record.discoverer}` : 'Unclaimed — waiting for a discoverer';
+  const by = w.record ? `Discovered by ${w.record.discoverer}` : 'Unclaimed, waiting for a discoverer';
   g.fillText(by, 90, 330 + size + 70);
   g.font = '400 20px "JetBrains Mono"'; g.fillStyle = '#7d86a3';
   const facts = [`${pr.radiusKm.toLocaleString()} km`, `${pr.tempC}°C`, `${Math.round(d.moons)} moon${Math.round(d.moons) === 1 ? '' : 's'}`, pr.species ? `home of the ${pr.species}` : null].filter(Boolean).join('   ·   ');
@@ -561,7 +561,7 @@ $('#postcardBtn').onclick = async () => {
   g.fillStyle = '#8fd3ff'; g.font = '500 22px "JetBrains Mono"';
   g.fillText(shareUrl().replace(/^https?:\/\//, ''), 90, H - 84);
   const a = document.createElement('a');
-  a.download = `${w.id}-worldseed.png`;
+  a.download = `${w.id}-cosmonym.png`;
   a.href = c.toDataURL('image/png');
   a.click();
 };
@@ -606,7 +606,7 @@ function updatePreview() {
   const type = claimed ? claimed.type : d.type;
   const rar = rarityOf(d);
   el.innerHTML = claimed
-    ? `<span class="chip">${TYPE_INFO[type].glyph} ${TYPE_INFO[type].label}</span><span class="chip claimed">★ Already claimed — visit it</span>`
+    ? `<span class="chip">${TYPE_INFO[type].glyph} ${TYPE_INFO[type].label}</span><span class="chip claimed">★ Already claimed, visit it</span>`
     : `<span class="chip">${TYPE_INFO[type].glyph} ${TYPE_INFO[type].label}</span><span class="chip r" style="--rc:${rar.color}">✦ ${rar.name}</span><span class="chip">Unclaimed</span>`;
 }
 $('#seedForm').addEventListener('submit', e => {
@@ -641,7 +641,7 @@ function renderCounts() {
   const n = S.stats.worlds;
   $('#heroCount').textContent = n ? `${n.toLocaleString()} world${n === 1 ? '' : 's'} discovered${S.stats.today ? ` · ${S.stats.today} today` : ''}` : 'A living galaxy, waiting for you';
   $('#onlineCount').textContent = S.stats.online;
-  $('#exploreSub').textContent = n ? `${n.toLocaleString()} worlds. Every light is one someone claimed.` : 'No worlds yet — be the first light.';
+  $('#exploreSub').textContent = n ? `${n.toLocaleString()} worlds. Every light is one someone claimed.` : 'No worlds yet. Be the first light.';
 }
 
 // ------------------------------------------------------------------ explore
@@ -652,7 +652,7 @@ async function loadList() {
     const { worlds } = await api.get(`/api/worlds?sort=${listSort}&limit=80${q ? '&q=' + encodeURIComponent(q) : ''}`);
     const ul = $('#worldList');
     if (!worlds.length) {
-      ul.innerHTML = q ? `<li class="empty">Nothing found for “${esc(q)}”.<br/>It’s unclaimed — <a href="/w/${esc(slugify(q))}?n=${encodeURIComponent(q)}" data-link style="color:var(--accent)">grow it now →</a></li>`
+      ul.innerHTML = q ? `<li class="empty">Nothing found for “${esc(q)}”.<br/>It’s unclaimed. <a href="/w/${esc(slugify(q))}?n=${encodeURIComponent(q)}" data-link style="color:var(--accent)">grow it now →</a></li>`
         : `<li class="empty">No worlds have been claimed yet. Head home, type a name, and become the first discoverer.</li>`;
       return;
     }

@@ -1,4 +1,4 @@
-// WORLDSEED server — static host, world registry, and a live event stream.
+// COSMONYM server: static host, world registry, and a live event stream.
 // Zero dependencies beyond Node's standard library; three.js is served from node_modules.
 import http from 'node:http';
 import fs from 'node:fs';
@@ -25,9 +25,9 @@ function load() {
     const raw = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
     db.worlds = raw.worlds || {};
     db.order = Object.values(db.worlds).sort((a, b) => a.createdAt - b.createdAt).map(w => w.id);
-    console.log(`[worldseed] loaded ${db.order.length} worlds`);
+    console.log(`[cosmonym] loaded ${db.order.length} worlds`);
   } catch (e) {
-    if (e.code !== 'ENOENT') console.error('[worldseed] failed to read db, starting fresh', e.message);
+    if (e.code !== 'ENOENT') console.error('[cosmonym] failed to read db, starting fresh', e.message);
   }
 }
 
@@ -40,7 +40,7 @@ async function flush() {
     await fsp.rename(tmp, DB_FILE);
   } catch (e) {
     dirty = true;
-    console.error('[worldseed] write failed', e.message);
+    console.error('[cosmonym] write failed', e.message);
   }
 }
 setInterval(flush, 2000).unref();
@@ -172,7 +172,7 @@ function indexHtml(world) {
   if (!world) return indexTemplate;
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const rar = world.rarity || 'Common';
-  const title = `${esc(world.name)} — ${/^[aeiou]/i.test(rar) ? 'an' : 'a'} ${esc(rar)} world on WORLDSEED`;
+  const title = `${esc(world.name)}, ${/^[aeiou]/i.test(rar) ? 'an' : 'a'} ${esc(rar)} world on COSMONYM`;
   const desc = `Discovered by ${esc(world.discoverer)}. ${world.epitaph ? '“' + esc(world.epitaph) + '” ' : ''}Type any name and grow your own world.`;
   return indexTemplate
     .replace(/<title>[^<]*<\/title>/, `<title>${title}</title>`)
@@ -305,10 +305,10 @@ const server = http.createServer(async (req, res) => {
 
     return serveFile(res, p, PUBLIC_DIR, 'no-cache');
   } catch (e) {
-    console.error('[worldseed]', e);
+    console.error('[cosmonym]', e);
     if (!res.headersSent) send(res, 500, { error: 'cosmic interference' });
   }
 });
 
 load();
-server.listen(PORT, () => console.log(`[worldseed] listening on :${PORT}`));
+server.listen(PORT, () => console.log(`[cosmonym] listening on :${PORT}`));

@@ -256,14 +256,14 @@ const LORE = {
   terran: [
     'Rivers braid across its continents like silver thread, and storm fronts roll over forests older than memory.',
     'Its seasons are long and gentle; whole migrations of flying herds follow the warmth from pole to pole.',
-    'From orbit it looks almost familiar — blue seas, green coasts — which is exactly what makes it unsettling.',
+    'From orbit it looks almost familiar, with blue seas and green coasts, which is exactly what makes it unsettling.',
     'Ancient mountain chains wall off its continents, so every valley evolved its own impossible ecosystem.',
   ],
   ocean: [
     'A single planetary ocean covers almost everything, broken only by archipelagos of drifting coral cities.',
     'Waves here can circle the entire world without touching land, building into swells the height of towers.',
     'Bioluminescent tides turn the night side into a slow, breathing aurora of blue light.',
-    'Its seafloor sings — tectonic vents hum at frequencies that carry for thousands of kilometres.',
+    'Its seafloor sings: tectonic vents hum at frequencies that carry for thousands of kilometres.',
   ],
   desert: [
     'Dunes the size of mountain ranges crawl across its surface a few metres every year.',
@@ -281,7 +281,7 @@ const LORE = {
     'Its crust is a cracked shell floating on a sea of magma; the night side glows like a forge.',
     'Rivers of molten rock carve new continents every few decades, and the rain is made of glass.',
     'Tidal forces from its star knead the planet like dough, keeping it endlessly, violently young.',
-    'Volcanoes here are taller than any mountain in the sector — some vent straight into space.',
+    'Volcanoes here are taller than any mountain in the sector, and some vent straight into space.',
   ],
   gas: [
     'Storms larger than whole planets churn in its bands, some of them older than human history.',
@@ -290,7 +290,7 @@ const LORE = {
     'Floating gas-whales have been reported in its upper layers, though no probe has survived to confirm it.',
   ],
   barren: [
-    'Billions of years of impacts have written its history in craters — a stone diary left out in the rain of space.',
+    'Billions of years of impacts have written its history in craters, a stone diary left out in the rain of space.',
     'There is no wind here, so footprints would last longer than the stars that witness them.',
     'Its surface is scarred, silent and beautiful, a museum of every collision in the system’s past.',
     'Ancient lava tubes honeycomb its crust, perfect shelter for anyone daring enough to stay.',
@@ -306,16 +306,16 @@ const LORE = {
 const LIFE = [
   civ => `It is home to the ${civ}, a ${['curious', 'ancient', 'peaceful', 'restless', 'brilliant', 'secretive'][Math.abs(civ.length) % 6]} species whose cities trace glowing filigree across the night side.`,
   civ => `The ${civ} have built a civilisation here; their lights are visible from orbit, mapping every coastline.`,
-  civ => `Its dominant species, the ${civ}, communicate through colour and have never known war — or so they claim.`,
+  civ => `Its dominant species, the ${civ}, communicate through colour and have never known war. Or so they claim.`,
 ];
 const MICRO = [
   'Spectrographs hint at microbial life in its shallows, the first stirring of something bigger.',
-  'No intelligent life has been detected — yet its atmosphere shows signs that something is breathing.',
+  'No intelligent life has been detected, yet its atmosphere shows signs that something is breathing.',
   'Life here is simple and stubborn: lichens, mats, and the occasional thing that moves when nobody is watching.',
 ];
 const DEAD = [
   'No life has been detected. Only the wind remembers anything here.',
-  'It is lifeless — for now. Planets are patient.',
+  'It is lifeless, for now. Planets are patient.',
   'Sterile and silent, it waits for someone to give it a story.',
 ];
 
@@ -352,10 +352,10 @@ export function profile(name, dna) {
   if (dna.civ > 0.12) parts.push(r.pick(LIFE)(civName));
   else if (habit > 0.35) parts.push(r.pick(MICRO));
   else parts.push(r.pick(DEAD));
-  if (dna.megastructure) parts.push(`An artificial ring encircles its equator — a megastructure the ${civName} refuse to explain.`);
+  if (dna.megastructure) parts.push(`An artificial ring encircles its equator, a megastructure the ${civName} refuse to explain.`);
   if (dna.binary) parts.push('Two suns rise over its horizon, casting doubled shadows across the land.');
   if (dna.aurora) parts.push('Its poles burn with auroras so bright they can be seen from neighbouring systems.');
-  if (dna.rings > 0 && !isGas) parts.push('A ring of shattered ice arcs across its sky — the remains of a moon that came too close.');
+  if (dna.rings > 0 && !isGas) parts.push('A ring of shattered ice arcs across its sky, the remains of a moon that came too close.');
 
   const designation = `${starCode}-${r.int(100, 999)} ${ROMAN[r.int(0, 6)]}`;
   return {
