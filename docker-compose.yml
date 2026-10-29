@@ -1,18 +1,17 @@
-# Portainer git stack: runs straight from the checked-out repo on a stock Node
-# image, so nothing has to be built on the host. Redeploy = pull + recreate.
+# Portainer stack. The image is built on the Docker host from this repo
+# (docker build -t worldseed:latest .) since Portainer's agent cannot run
+# compose builds; the stack then just runs it.
 services:
   worldseed:
-    image: node:22-alpine
+    image: worldseed:latest
+    pull_policy: never
     container_name: worldseed
     restart: unless-stopped
-    working_dir: /app
-    command: sh -c "npm ci --omit=dev --no-audit --no-fund && exec node server.js"
     environment:
       NODE_ENV: production
       PORT: "3000"
       DATA_DIR: /data
     volumes:
-      - ./:/app
       - worldseed-data:/data
     ports:
       - "8089:3000"
@@ -23,12 +22,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 60s
 
 volumes:
   worldseed-data:
