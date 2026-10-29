@@ -5,23 +5,59 @@
 # Env (set in the Portainer stack):
 #   GATE_ALLOW  who may connect: "all" while testing on the LAN, or the reverse
 #               proxy's address (e.g. 10.0.101.1) once the domain is live
-#   NPM_PROXY   the reverse proxy whose CF-Connecting-IP header we believe
+#   NPM_PROXY   the reverse proxy (Nginx Proxy Manager) in front of this gate
+#
+# Who is the visitor?
+#   The router forwards 443 from anywhere, so someone can skip Cloudflare, hit
+#   NPM directly with "Host: cosmonym.app" and send a fake CF-Connecting-IP.
+#   NPM records the address it really received the request from in X-Real-IP
+#   (it overwrites any client copy). CF-Connecting-IP is only believed when that
+#   address is a Cloudflare edge; otherwise X-Real-IP itself is the visitor.
 
-# Only the reverse proxy may vouch for a visitor's IP; anyone else is who they are.
+# Did this request come from NPM?
 geo $from_proxy {
     default      0;
     ${NPM_PROXY} 1;
 }
-map $from_proxy $client_ip {
-    1       $http_cf_connecting_ip;
-    default $remote_addr;
+
+# Did NPM receive it from Cloudflare? (https://www.cloudflare.com/ips/)
+geo $http_x_real_ip $npm_peer_is_cloudflare {
+    default            0;
+    173.245.48.0/20    1;
+    103.21.244.0/22    1;
+    103.22.200.0/22    1;
+    103.31.4.0/22      1;
+    141.101.64.0/18    1;
+    108.162.192.0/18   1;
+    190.93.240.0/20    1;
+    188.114.96.0/20    1;
+    197.234.240.0/22   1;
+    198.41.128.0/17    1;
+    162.158.0.0/15     1;
+    104.16.0.0/13      1;
+    104.24.0.0/14      1;
+    172.64.0.0/13      1;
+    131.0.72.0/22      1;
+    2400:cb00::/32     1;
+    2606:4700::/32     1;
+    2803:f800::/32     1;
+    2405:b500::/32     1;
+    2405:8100::/32     1;
+    2a06:98c0::/29     1;
+    2c0f:f248::/32     1;
+}
+
+map "$from_proxy:$npm_peer_is_cloudflare" $client_ip {
+    "1:1"   $http_cf_connecting_ip;   # Cloudflare -> NPM -> gate: Cloudflare's word
+    "1:0"   $http_x_real_ip;          # straight to NPM, bypassing Cloudflare: who NPM saw
+    default $remote_addr;             # straight to the gate (LAN)
 }
 map $client_ip $forward_ip {
     ""      $remote_addr;
     default $client_ip;
 }
 
-log_format gate '$remote_addr via=$from_proxy client=$forward_ip "$request" $status $body_bytes_sent $request_time';
+log_format gate '$remote_addr via=$from_proxy cf=$npm_peer_is_cloudflare client=$forward_ip "$request" $status $body_bytes_sent $request_time';
 
 server {
     listen 8080;

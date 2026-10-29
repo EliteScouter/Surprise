@@ -98,7 +98,8 @@ Found by attacking the running app, then verified blocked:
 - [ ] Automated injection tests (sqlmap-style payloads) against every endpoint before launch
 
 ### 2. Keep attackers out of the infrastructure
-- [ ] **(You, router/NPM)** Only Cloudflare IP ranges may reach the 443 port-forward, so nobody can bypass Cloudflare and fake `CF-Connecting-IP`
+- [x] Bypassing Cloudflare (hitting the public IP with `Host: cosmonym.app`) can't fake an IP: the gate only believes `CF-Connecting-IP` when NPM received the request from a Cloudflare edge (checked via NPM's `X-Real-IP`)
+- [ ] Refresh the Cloudflare ranges in `gate/default.conf.template` if https://www.cloudflare.com/ips/ ever changes (rare)
 - [x] Gate container (nginx) is the only exposed piece; it believes `CF-Connecting-IP` only from NPM (10.0.101.1) and overwrites it for everyone else
 - [x] App trusts forwarded IPs only from the gate's private subnet; `PUBLIC_ORIGINS` defaults to https://cosmonym.app
 - [ ] Flip the gate to NPM-only (`GATE_ALLOW=10.0.101.1` in the stack env) once cosmonym.app is live in NPM
