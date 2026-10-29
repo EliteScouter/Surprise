@@ -138,6 +138,12 @@ Found by attacking the running app, then verified blocked:
 - [x] `security.txt` at `/.well-known/security.txt` (create the `security@cosmonym.app` alias)
 - [ ] External penetration test (or a paid bug bounty) before a big public launch
 
+## Waiting on you
+- [ ] Cloudflare injects its **Web Analytics** beacon into pages; our security policy blocks it (good, the privacy policy promises no analytics). Turn it off in Cloudflare → Web Analytics so it stops trying.
+- [ ] Optional: Cloudflare → Caching → **Browser Cache TTL: Respect Existing Headers** (it currently forces 4 hours; versioned asset URLs already work around this)
+- [ ] Create `privacy@cosmonym.app` and `security@cosmonym.app` aliases once the domain is in M365
+- [ ] Decide on the rarity rebalance below (it would change the tier of already-claimed worlds, including yours)
+
 ## Also discussed (not yet scheduled)
 - [x] Domain live: https://cosmonym.app via Cloudflare → NPM (Let's Encrypt) → gate :8089
 - [ ] Rarity rebalance: Legendary ~1 in 2,000, Mythic ~1 in 25,000
