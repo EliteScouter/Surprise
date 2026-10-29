@@ -286,7 +286,9 @@ function renderDossier(retype) {
   const r = $('#dRarity');
   r.style.setProperty('--rc', rar.color);
   r.className = 'rarity ' + rar.name.toLowerCase();
-  r.innerHTML = `✦ ${rar.name} <span class="pct">· rarer than ${(pct * 100).toFixed(pct > 0.99 ? 1 : 0)}% of worlds</span>`;
+  // a 4,000-name sample can't resolve the top tiers, so those show their odds instead
+  const note = rar.odds >= 95 ? `about 1 in ${rar.odds.toLocaleString()} worlds` : `rarer than ${(pct * 100).toFixed(0)}% of worlds`;
+  r.innerHTML = `✦ ${rar.name} <span class="pct">· ${note}</span>`;
   $('#dName').textContent = w.name;
   $('#dClass').textContent = `${TYPE_INFO[d.type].glyph}  ${TYPE_INFO[d.type].label} · ${pr.designation}`;
   const disc = $('#dDisc');

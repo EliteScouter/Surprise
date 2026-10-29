@@ -561,4 +561,6 @@ server.listen(PORT, () => console.log(`[cosmonym] listening on :${PORT} (storage
   } else {
     await store.init();
   }
+  const moved = await store.retier(rarityFor);
+  if (moved) { invalidateMap(); console.log(`[cosmonym] re-tiered ${moved} world(s) to the current rarity rules`); }
 })().catch(e => { console.error('[cosmonym] storage failed to start', e); process.exit(1); });

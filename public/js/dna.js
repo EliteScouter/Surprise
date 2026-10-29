@@ -191,13 +191,15 @@ export function hexToHsl(hex) {
   return [h, s, l];
 }
 
+// Thresholds tuned over 6 million random names; odds is roughly how many names
+// you'd grow to find one of that exact tier.
 export const RARITY = [
   { name: 'Common', color: '#9aa7b8', min: 0 },
-  { name: 'Uncommon', color: '#5fe0a0', min: 2.2 },
-  { name: 'Rare', color: '#4fb4ff', min: 3.6 },
-  { name: 'Epic', color: '#b878ff', min: 5.2 },
-  { name: 'Legendary', color: '#ffb340', min: 7 },
-  { name: 'Mythic', color: '#ff4f8a', min: 9 },
+  { name: 'Uncommon', color: '#5fe0a0', min: 3.0, odds: 5 },
+  { name: 'Rare', color: '#4fb4ff', min: 4.4, odds: 14 },
+  { name: 'Epic', color: '#b878ff', min: 7.3, odds: 95 },
+  { name: 'Legendary', color: '#ffb340', min: 10.2, odds: 2100 },
+  { name: 'Mythic', color: '#ff4f8a', min: 11.8, odds: 25000 },
 ];
 
 export function rarityScore(d) {
