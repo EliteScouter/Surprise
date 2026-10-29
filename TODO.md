@@ -119,7 +119,8 @@ Found by attacking the running app, then verified blocked:
 - [ ] Centralised logs with alerts on spikes in 4xx/5xx, 429s and admin logins
 
 ### 3. Standards and encryption
-- [ ] Cloudflare: minimum TLS version is currently 1.0, raise it to **1.2**; turn on **Always Use HTTPS** (plain http:// currently serves the page); SSL mode **Full (strict)**; TLS 1.3 on
+- [x] Cloudflare: minimum TLS 1.2 (1.0/1.1 refused), TLS 1.3 on, http:// redirects to https:// (verified)
+- [ ] Cloudflare SSL mode **Full (strict)** (confirm in the dashboard)
 - [ ] Origin certificate: Let's Encrypt on the reverse proxy, auto-renew, OCSP stapling
 - [ ] Passwords hashed with Argon2id (or scrypt), per-user salt, never logged
 - [ ] Sessions: random 256-bit IDs in `__Host-` cookies, `Secure`, `HttpOnly`, `SameSite=Lax`, rotated on login, server-side revocation
