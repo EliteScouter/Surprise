@@ -31,9 +31,12 @@ services:
       # once cosmonym.app is live so nothing else can reach the site.
       GATE_ALLOW: ${GATE_ALLOW:-all}
       NPM_PROXY: ${NPM_PROXY:-10.0.101.1}
+      # the only place the sealed app may connect to (MariaDB / Galera)
+      DB_UPSTREAM: ${DB_UPSTREAM:-10.10.20.120:3306}
     tmpfs:
       - /tmp:size=16m,uid=101,gid=101
       - /etc/nginx/conf.d:size=1m,uid=101,gid=101
+      - /etc/nginx/stream-conf.d:size=1m,uid=101,gid=101
     ports:
       - "8089:8080"
     networks:
@@ -59,6 +62,16 @@ services:
       # for a visitor's IP.
       TRUSTED_PROXIES: 172.31.89.0/29
       PUBLIC_ORIGINS: ${PUBLIC_ORIGINS:-https://cosmonym.app}
+      # Storage: leave DB_PASSWORD empty to keep using the JSON file in /data.
+      # Set it (in the Portainer stack env, never in git) to switch to MariaDB;
+      # existing worlds are imported automatically on first start.
+      DB_HOST: gate
+      DB_NAME: ${DB_NAME:-cosmonym}
+      DB_USER: ${DB_USER:-cosmonym}
+      DB_PASSWORD: ${DB_PASSWORD:-}
+      DB_MIGRATE_USER: ${DB_MIGRATE_USER:-cosmonym_migrate}
+      DB_MIGRATE_PASSWORD: ${DB_MIGRATE_PASSWORD:-}
+      DB_TLS: ${DB_TLS:-off}
     tmpfs:
       - /tmp:size=16m,mode=1777
     volumes:

@@ -1,5 +1,5 @@
 // COSMONYM server: static host, world registry, and a live event stream.
-// Zero dependencies beyond Node's standard library; three.js is served from node_modules.
+// Storage lives in lib/store.js (MariaDB in production, a JSON file otherwise).
 import http from 'node:http';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -9,11 +9,11 @@ import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { dnaFromName, rarityOf, worldColorHue } from './public/js/dna.js';
 import { isOffensive } from './public/js/filter.js';
+import { createStore, hasLegacyFile, FileStore, DuplicateError, UnavailableError } from './lib/store.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
-const DB_FILE = path.join(DATA_DIR, 'worlds.json');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const THREE_DIR = path.join(__dirname, 'node_modules', 'three');
 const MAX_WORLDS = 200000;
@@ -26,38 +26,17 @@ const MAX_STREAMS_PER_IP = 6;
 const MAX_STREAMS = 5000;
 
 // ---------------------------------------------------------------- storage
-let db = { worlds: Object.create(null), order: [] };
-let dirty = false;
-
-function load() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  try {
-    const raw = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-    db.worlds = Object.assign(Object.create(null), raw.worlds || {});
-    // rarity is derived from the name, never trusted from storage or clients
-    for (const w of Object.values(db.worlds)) w.rarity = rarityOf(dnaFromName(w.name)).name;
-    db.order = Object.values(db.worlds).sort((a, b) => a.createdAt - b.createdAt).map(w => w.id);
-    console.log(`[cosmonym] loaded ${db.order.length} worlds`);
-  } catch (e) {
-    if (e.code !== 'ENOENT') console.error('[cosmonym] failed to read db, starting fresh', e.message);
-  }
-}
-
-async function flush() {
-  if (!dirty) return;
-  dirty = false;
-  const tmp = DB_FILE + '.tmp';
-  try {
-    await fsp.writeFile(tmp, JSON.stringify({ worlds: db.worlds }));
-    await fsp.rename(tmp, DB_FILE);
-  } catch (e) {
-    dirty = true;
-    console.error('[cosmonym] write failed', e.message);
-  }
-}
-setInterval(flush, 2000).unref();
+const store = createStore(process.env, DATA_DIR);
 for (const sig of ['SIGINT', 'SIGTERM']) {
-  process.on(sig, async () => { await flush(); process.exit(0); });
+  process.on(sig, async () => { await store.close().catch(() => {}); process.exit(0); });
+}
+
+// rarity always comes from the name, never from storage or clients
+const rarityCache = new Map();
+function rarityFor(name) {
+  let r = rarityCache.get(name);
+  if (!r) { r = rarityOf(dnaFromName(name)).name; if (rarityCache.size > 50000) rarityCache.clear(); rarityCache.set(name, r); }
+  return r;
 }
 
 // Secret pepper for hashing IP addresses. Without it, all 4 billion IPv4 hashes
@@ -119,7 +98,7 @@ function sanitizeDna(input, name) {
 function publicWorld(w, full = false) {
   const base = {
     id: w.id, name: w.name, discoverer: w.discoverer, createdAt: w.createdAt,
-    stars: w.stars, views: w.views, type: w.dna.type, hue: w.hue, rarity: w.rarity,
+    stars: w.stars, views: w.views, type: w.dna.type, hue: w.hue, rarity: rarityFor(w.name),
   };
   if (full) { base.dna = w.dna; base.epitaph = w.epitaph; base.updatedAt = w.updatedAt; }
   return base;
@@ -168,6 +147,7 @@ function ipOf(req) {
 const ipHash = ip => crypto.createHmac('sha256', IP_SECRET).update(ip).digest('base64url').slice(0, 16);
 
 // ---------------------------------------------------------------- live stream
+let mapCache = null;
 const clients = new Set();
 const streamsByIp = new Map();
 function broadcast(event, data) {
@@ -269,7 +249,7 @@ function securityHeaders(res) {
 function indexHtml(world) {
   if (!world) return indexTemplate;
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const rar = world.rarity || 'Common';
+  const rar = rarityFor(world.name);
   const title = `${esc(world.name)}, ${/^[aeiou]/i.test(rar) ? 'an' : 'a'} ${esc(rar)} world on COSMONYM`;
   const desc = `Discovered by ${esc(world.discoverer)}. ${world.epitaph ? '“' + esc(world.epitaph) + '” ' : ''}Type any name and grow your own world.`;
   return indexTemplate
@@ -292,7 +272,10 @@ const server = http.createServer(async (req, res) => {
 
   try {
     // ---- API
-    if (p === '/api/health') return send(res, 200, { ok: true, worlds: db.order.length });
+    if (p === '/api/health') {
+      if (!store.ready) return send(res, 503, { ok: false, storage: store.kind });
+      return send(res, 200, { ok: true, storage: store.kind, worlds: await store.count() });
+    }
 
     if (p === '/api/stream') {
       // per-IP and global caps so nobody can exhaust connections; the online count
@@ -312,10 +295,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (p === '/api/stats') {
-      const today = Date.now() - 86400000;
-      let todayCount = 0;
-      for (let i = db.order.length - 1; i >= 0; i--) { if (db.worlds[db.order[i]].createdAt > today) todayCount++; else break; }
-      return send(res, 200, { worlds: db.order.length, online: clients.size, today: todayCount });
+      const [worlds, today] = await Promise.all([store.count(), store.countSince(Date.now() - 86400000)]);
+      return send(res, 200, { worlds, online: clients.size, today });
     }
 
     if (p === '/api/worlds' && req.method === 'GET') {
@@ -324,30 +305,31 @@ const server = http.createServer(async (req, res) => {
       const rawQ = url.searchParams.get('q') || '';
       const q = isOffensive(rawQ) ? '' : slugify(rawQ);
       if (rawQ && !q) return send(res, 200, { worlds: [] });
-      let list = db.order.map(id => db.worlds[id]);
-      if (q) list = list.filter(w => w.id.includes(q) || slugify(w.discoverer).includes(q));
-      if (sort === 'top') list = [...list].sort((a, b) => b.stars - a.stars || b.views - a.views);
-      else if (sort === 'viewed') list = [...list].sort((a, b) => b.views - a.views);
-      else list = list.slice().reverse();
-      return send(res, 200, { worlds: list.slice(0, limit).map(w => publicWorld(w)) });
+      const list = await store.list({ sort, limit, q });
+      return send(res, 200, { worlds: list.map(w => publicWorld(w)) });
     }
 
     // Compact map of every world for the galaxy: [id, name, hue, typeIndex, stars]
     if (p === '/api/map') {
-      const rows = db.order.map(id => { const w = db.worlds[id]; return [w.id, w.name, Math.round(w.hue * 1000) / 1000, TYPES.indexOf(w.dna.type), w.stars]; });
-      return send(res, 200, { worlds: rows }, { 'Cache-Control': 'public, max-age=5' });
+      // built at most every 5s, however many visitors ask
+      if (!mapCache || Date.now() - mapCache.at > 5000) {
+        const rows = (await store.map()).map(w => [w.id, w.name, Math.round(w.hue * 1000) / 1000, TYPES.indexOf(w.dna.type), w.stars]);
+        mapCache = { at: Date.now(), body: JSON.stringify({ worlds: rows }) };
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=5' });
+      return res.end(mapCache.body);
     }
 
     let m;
     if ((m = p.match(/^\/api\/world\/([a-z0-9-]{1,32})$/))) {
       const id = m[1];
-      const w = db.worlds[id];
+      const w = await store.get(id);
 
       if (req.method === 'GET') {
         if (!w) return send(res, 200, { world: null });
         const h = ipHash(ip);
         let seen = viewSeen.get(id); if (!seen) viewSeen.set(id, seen = new Set());
-        if (!seen.has(h)) { seen.add(h); w.views++; dirty = true; }
+        if (!seen.has(h)) { seen.add(h); w.views++; await store.addView(id); }
         return send(res, 200, { world: publicWorld(w, true) });
       }
 
@@ -361,10 +343,10 @@ const server = http.createServer(async (req, res) => {
         if (!dna) return send(res, 400, { error: 'bad dna' });
         const epitaph = sanitizeText(body.epitaph ?? w.epitaph, 140);
         if (!clean(epitaph)) return send(res, 400, { error: 'Let’s keep the cosmos friendly.' });
-        Object.assign(w, { dna, epitaph, hue: worldColorHue(dna), updatedAt: Date.now() });
-        dirty = true;
-        broadcast('update', publicWorld(w));
-        return send(res, 200, { world: publicWorld(w, true) });
+        const saved = await store.update(id, { dna, epitaph, hue: worldColorHue(dna), updatedAt: Date.now() });
+        mapCache = null;
+        broadcast('update', publicWorld(saved));
+        return send(res, 200, { world: publicWorld(saved, true) });
       }
     }
 
@@ -381,34 +363,35 @@ const server = http.createServer(async (req, res) => {
       const epitaph = sanitizeText(body.epitaph, 140);
       if (!clean(name)) return send(res, 400, { error: 'That name isn’t available in the cosmos.' });
       if (!clean(discoverer) || !clean(epitaph)) return send(res, 400, { error: 'Let’s keep the cosmos friendly.' });
-      if (db.worlds[id]) return send(res, 409, { error: 'Someone already claimed this world.', world: publicWorld(db.worlds[id], true) });
-      if (db.order.length >= MAX_WORLDS) return send(res, 503, { error: 'The galaxy is full.' });
+      const existing = await store.get(id);
+      if (existing) return send(res, 409, { error: 'Someone already claimed this world.', world: publicWorld(existing, true) });
+      if (await store.count() >= MAX_WORLDS) return send(res, 503, { error: 'The galaxy is full.' });
       const dna = sanitizeDna(body.dna, name);
       if (!dna) return send(res, 400, { error: 'bad dna' });
       const token = crypto.randomBytes(24).toString('base64url');
       const w = {
         id, name, discoverer, epitaph, dna,
-        hue: worldColorHue(dna), rarity: rarityOf(dnaFromName(name)).name,
-        createdAt: Date.now(), updatedAt: Date.now(), stars: 0, views: 1, starHashes: [],
+        hue: worldColorHue(dna), rarity: rarityFor(name),
+        createdAt: Date.now(), updatedAt: Date.now(), stars: 0, views: 1,
         tokenHash: crypto.createHash('sha256').update(token).digest('hex'),
       };
-      db.worlds[id] = w; db.order.push(id); dirty = true;
-      broadcast('world', publicWorld(w));
-      return send(res, 201, { world: publicWorld(w, true), token });
+      let saved;
+      try { saved = await store.create(w); } catch (e) {
+        if (e instanceof DuplicateError) return send(res, 409, { error: 'Someone already claimed this world.', world: publicWorld(await store.get(id), true) });
+        throw e;
+      }
+      mapCache = null;
+      broadcast('world', publicWorld(saved));
+      return send(res, 201, { world: publicWorld(saved, true), token });
     }
 
     if ((m = p.match(/^\/api\/world\/([a-z0-9-]{1,32})\/star$/)) && req.method === 'POST') {
-      const w = db.worlds[m[1]];
-      if (!w) return send(res, 404, { error: 'unclaimed' });
       if (limited(ip, 'star', 120, 3600000)) return send(res, 429, { error: 'Too many stars!' });
-      const h = ipHash(ip);
-      w.starHashes ||= [];
-      const i = w.starHashes.indexOf(h);
-      let starred;
-      if (i === -1) { w.starHashes.push(h); starred = true; } else { w.starHashes.splice(i, 1); starred = false; }
-      w.stars = w.starHashes.length; dirty = true;
-      broadcast('star', { id: w.id, stars: w.stars });
-      return send(res, 200, { stars: w.stars, starred });
+      const result = await store.toggleStar(m[1], ipHash(ip));
+      if (!result) return send(res, 404, { error: 'unclaimed' });
+      mapCache = null;
+      broadcast('star', { id: m[1], stars: result.stars });
+      return send(res, 200, result);
     }
 
     if (p.startsWith('/api/')) return send(res, 404, { error: 'no such endpoint' });
@@ -420,12 +403,19 @@ const server = http.createServer(async (req, res) => {
     if (p === '/' || p === '/index.html' || p === '/explore') return send(res, 200, indexHtml(null), { 'Content-Type': MIME['.html'] });
     if ((m = p.match(/^\/w\/([a-z0-9-]{1,32})\/?$/))) {
       if (isOffensive(m[1]) || isOffensive(url.searchParams.get('n') || '')) { res.writeHead(302, { Location: '/' }); return res.end(); }
-      return send(res, 200, indexHtml(db.worlds[m[1]]), { 'Content-Type': MIME['.html'] });
+      const world = store.ready ? await store.get(m[1]).catch(() => null) : null;
+      return send(res, 200, indexHtml(world), { 'Content-Type': MIME['.html'] });
     }
 
     return serveFile(res, p, PUBLIC_DIR, 'no-cache');
   } catch (e) {
     if (e instanceof BadRequest) { if (!res.headersSent) send(res, e.status, { error: e.message }); return; }
+    // database unreachable (down, restarting, network blip): fail fast and honestly
+    if (e instanceof UnavailableError || e.fatal || ['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EPIPE', 'PROTOCOL_CONNECTION_LOST', 'ER_CON_COUNT_ERROR'].includes(e.code)) {
+      if (store.kind === 'mariadb' && !(e instanceof UnavailableError)) { store.ok = false; console.error('[cosmonym] database error:', e.code || e.message); }
+      if (!res.headersSent) send(res, 503, { error: 'The galaxy is briefly out of reach. Try again in a moment.' });
+      return;
+    }
     console.error('[cosmonym]', e);
     if (!res.headersSent) send(res, 500, { error: 'cosmic interference' });
   }
@@ -437,5 +427,15 @@ server.requestTimeout = 15000;
 server.keepAliveTimeout = 5000;
 server.maxHeadersCount = 60;
 
-load();
-server.listen(PORT, () => console.log(`[cosmonym] listening on :${PORT}`));
+// Serve immediately; storage connects (and retries) in the background so a
+// database hiccup at boot never takes the static site down.
+server.listen(PORT, () => console.log(`[cosmonym] listening on :${PORT} (storage: ${store.kind})`));
+(async () => {
+  if (store.kind === 'mariadb') {
+    const legacy = hasLegacyFile(DATA_DIR) ? new FileStore(DATA_DIR) : null;
+    if (legacy) await legacy.init();
+    await store.init({ importFrom: legacy });
+  } else {
+    await store.init();
+  }
+})().catch(e => { console.error('[cosmonym] storage failed to start', e); process.exit(1); });

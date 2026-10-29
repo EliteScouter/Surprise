@@ -3,11 +3,12 @@
 Listed in build order. Each step depends on the ones above it.
 
 ## 1. MariaDB support
-- [ ] Create a `cosmonym` database and user on the Galera cluster (10.10.20.120)
-- [ ] Tables: `worlds`, `stars` (one row per user per world), `users`, `sessions`, `reports`, `audit_log`
-- [ ] Swap the JSON-file storage in `server.js` for MariaDB queries (claims, stars and edits write one row each)
-- [ ] One-time import of existing claimed worlds from `/data/worlds.json`
-- [ ] DB credentials go in the Portainer stack environment, never in the repo
+- [ ] **(You)** Run `db/setup.sql` on the Galera cluster (10.10.20.120) with two generated passwords, then add `DB_PASSWORD` and `DB_MIGRATE_PASSWORD` to the Portainer stack env
+- [x] Tables `worlds`, `stars`, `schema_version` with automatic migrations (`users`, `sessions`, `reports`, `audit_log` come with their features)
+- [x] Storage layer `lib/store.js`: MariaDB in production, JSON file as fallback; claims, stars and edits each write single rows
+- [x] Automatic one-time import from `/data/worlds.json` on first MariaDB start (tested: worlds, stars, views)
+- [x] DB credentials only in the Portainer stack env; app reaches the DB through a gate relay that allows only 10.10.20.120:3306
+- [x] Database outage: site stays up, API returns 503 instantly, self-recovers when the DB returns
 - [ ] Compressed, cached galaxy map endpoint so visitors don't download every world uncompressed
 - [ ] Faster marker hover-picking in the galaxy so it stays smooth with 100k+ worlds
 
@@ -88,15 +89,16 @@ Found by attacking the running app, then verified blocked:
 - [x] Container: non-root user, read-only filesystem, all Linux capabilities dropped, no-new-privileges, memory/CPU/process limits, npm removed from the image, OS packages upgraded at build
 
 ### 1. SQL injection (do with the MariaDB step)
-- [ ] Parameterized queries only (`mysql2` `execute()` with `?` placeholders); never build SQL from strings
-- [ ] Sort columns and directions picked from a fixed allowlist, never passed through
-- [ ] Escape `%` and `_` in user search terms used with `LIKE`
-- [ ] App DB user gets only `SELECT, INSERT, UPDATE, DELETE` on `cosmonym.*`. No `FILE`, `GRANT`, `SUPER`, DDL or access to other schemas
-- [ ] Separate migration user for schema changes, not used at runtime
-- [ ] `sql_mode` strict (`STRICT_ALL_TABLES`), `utf8mb4` everywhere
-- [ ] TLS between app and DB, verify the server certificate
-- [ ] CI check that fails the build on string-built SQL (grep/lint rule)
-- [ ] Automated injection tests (sqlmap-style payloads) against every endpoint before launch
+- [x] Parameterized queries only (`mysql2` with `?` placeholders); verified against injection payloads
+- [x] Sort columns and directions picked from a fixed allowlist, never passed through
+- [x] Escape `%` and `_` in user search terms used with `LIKE`
+- [x] App DB user gets only `SELECT, INSERT, UPDATE, DELETE` on `cosmonym.*` (verified: DROP/CREATE/ALTER/GRANT/FILE/mysql.* all denied)
+- [x] Separate migration user, used only at startup for schema changes
+- [x] `sql_mode` strict (`STRICT_ALL_TABLES`), `utf8mb4` everywhere
+- [ ] TLS between app and DB (`DB_TLS=verify` once the cluster has a certificate; traffic is currently on the LAN only)
+- [x] `npm test` fails on string-built SQL (`test/sql-safety.test.mjs`)
+- [x] Manual injection payloads against search, sort, limit, claims (all inert)
+- [ ] Full sqlmap run against every endpoint before a big launch
 
 ### 2. Keep attackers out of the infrastructure
 - [x] Bypassing Cloudflare (hitting the public IP with `Host: cosmonym.app`) can't fake an IP: the gate only believes `CF-Connecting-IP` when NPM received the request from a Cloudflare edge (checked via NPM's `X-Real-IP`)

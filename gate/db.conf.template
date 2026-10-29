@@ -1,0 +1,10 @@
+# Relays MariaDB traffic from the sealed app network to the database cluster.
+# Only the app's private subnet may use it, and it can only ever reach DB_UPSTREAM.
+server {
+    listen 3306;
+    allow 172.31.89.0/29;
+    deny  all;
+    proxy_pass ${DB_UPSTREAM};
+    proxy_connect_timeout 5s;
+    proxy_timeout 1h;
+}
