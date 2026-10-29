@@ -9,16 +9,19 @@ Redirect URIs must match exactly, including `https://` and no trailing slash.
 
 ## 1. Google sign-in (do this first: it unlocks the admin panel)
 
-1. Go to <https://console.cloud.google.com>, create a project called **Cosmonym**.
-2. **APIs & Services → OAuth consent screen**
-   - User type **External**, app name **Cosmonym**, your support email.
-   - Authorized domain: `cosmonym.app`.
-   - Scopes: `openid`, `email`, `profile` (all non-sensitive, so no Google review needed).
-   - Publish the app (**In production**), otherwise only test users can sign in.
-3. **APIs & Services → Credentials → Create credentials → OAuth client ID**
+Free, with no usage limits and no billing account. No API needs enabling (skip the API Library).
+
+1. Open <https://console.cloud.google.com/auth/overview> (Google Auth Platform) with your project selected.
+2. **Get started**: app name **Cosmonym**, your support email, audience **External**, contact email → **Create**.
+3. **Branding**: under *Authorized domains* add `cosmonym.app`.
+4. **Audience**: **Publish app**, otherwise only listed test users can sign in. We only ask for
+   name and email (`openid`, `email`, `profile`), so Google doesn't need to review it.
+5. **Clients → Create client**
    - Type **Web application**, name **Cosmonym**.
    - Authorized redirect URI: `https://cosmonym.app/api/auth/oauth/google/callback`
-4. Copy the values into the stack env:
+   - Leave *Authorized JavaScript origins* empty.
+6. The client secret is shown **only once**: copy or download it immediately.
+7. Copy the values into the stack env:
    - `GOOGLE_CLIENT_ID`
    - `GOOGLE_CLIENT_SECRET`
 
