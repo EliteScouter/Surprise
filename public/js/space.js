@@ -69,6 +69,35 @@ export class Space {
     this.sun2 = new THREE.Sprite(new THREE.SpriteMaterial({ map: makeGlowTexture('rgba(255,255,255,1)', 'rgba(255,140,110,0.4)'), color: 0xffb0a0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
     this.sun2.scale.setScalar(40);
     this.group.add(this.sun, this.sun2);
+
+    // Dyson swarm: thousands of collectors on tilted rings around the star,
+    // twinkling as they turn their mirrors. Shown for stellar-engineer species.
+    const S = 2600;
+    const spos = new Float32Array(S * 3), seedS = new Float32Array(S);
+    for (let i = 0; i < S; i++) {
+      const ring = i % 5, a = Math.random() * Math.PI * 2;
+      const r = 26 + ring * 3.2 + (Math.random() - 0.5) * 2.2;
+      const tilt = ring * 0.62 + 0.2, spin = ring * 1.1;
+      let x = Math.cos(a) * r, y = (Math.random() - 0.5) * 1.2, z = Math.sin(a) * r;
+      [y, z] = [y * Math.cos(tilt) - z * Math.sin(tilt), y * Math.sin(tilt) + z * Math.cos(tilt)];
+      [x, z] = [x * Math.cos(spin) + z * Math.sin(spin), -x * Math.sin(spin) + z * Math.cos(spin)];
+      spos.set([x, y, z], i * 3);
+      seedS[i] = Math.random();
+    }
+    const sg = new THREE.BufferGeometry();
+    sg.setAttribute('position', new THREE.BufferAttribute(spos, 3));
+    sg.setAttribute('aSeed', new THREE.BufferAttribute(seedS, 1));
+    this.swarmU = { uTime: this.starU.uTime, uPixel: this.starU.uPixel, uColor: { value: new THREE.Color(1, 0.85, 0.6) } };
+    this.swarm = new THREE.Points(sg, new THREE.ShaderMaterial({
+      uniforms: this.swarmU, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      vertexShader: `attribute float aSeed; uniform float uTime, uPixel; varying float vT;
+        void main(){ float t = sin(uTime * (0.6 + aSeed * 2.0) + aSeed * 60.0); vT = smoothstep(0.55, 1.0, t) * 2.2 + 0.18;
+          vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_PointSize = (1.2 + vT * 1.4) * uPixel; gl_Position = projectionMatrix * mv; }`,
+      fragmentShader: `uniform vec3 uColor; varying float vT; void main(){ float d = length(gl_PointCoord - 0.5); float a = smoothstep(0.5, 0.0, d); gl_FragColor = vec4(uColor * a * vT, a); }`,
+    }));
+    this.swarm.frustumCulled = false;
+    this.swarm.visible = false;
+    this.group.add(this.swarm);
   }
 
   configure(dna, sunDir, sun2Dir, hue) {
@@ -78,6 +107,9 @@ export class Space {
     this.sun.position.copy(sunDir).multiplyScalar(600);
     this.sun2.position.copy(sun2Dir).multiplyScalar(600);
     this.sun2.visible = !!dna.binary;
+    this.swarm.visible = dna.type !== 'gas' && dna.civ >= 0.86;
+    this.swarm.position.copy(this.sun.position);
+    this.swarm.lookAt(0, 0, 0);
     const starTint = { lava: 0xffc8a0, ice: 0xd8e8ff, desert: 0xfff0d0 }[dna.type] || 0xffffff;
     this.sun.material.color.set(starTint);
   }

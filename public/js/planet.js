@@ -2,7 +2,7 @@
 // a raymarched scattering atmosphere, rings, moons, megastructures and a genesis sequence.
 import * as THREE from 'three';
 import { NOISE, CLOUDS } from './glsl.js';
-import { paletteFor } from './dna.js';
+import { paletteFor, civLightColor } from './dna.js';
 
 const TYPE_ID = { terran: 0, ocean: 1, desert: 2, ice: 3, lava: 4, gas: 5, barren: 6, toxic: 7 };
 
@@ -88,6 +88,7 @@ ${NOISE}
 ${CLOUDS}
 uniform samplerCube uHeight;
 uniform float uTexel, uSea, uDisp, uForm, uTemp, uHumid, uCiv, uType, uBands, uStorm, uClouds;
+uniform vec3 uCivColor;
 uniform vec3 cDeep, cShallow, cBeach, cLush, cDry, cRock, cSnow;
 uniform vec3 uSeed;
 uniform vec3 uSunDir, uSunColor, uSun2Dir, uSun2Color;
@@ -174,18 +175,65 @@ void main(){
         float crack = pow(s.a, 7.0);
         emiss += cShallow * crack * 2.2 * (1.0 - smoothstep(0.0, 0.6, elev));
       }
-      // cities on the night side
-      if (uCiv > 0.0 && temp > -0.25 && temp < 0.6){
-        float n1 = snoise(dir * 34.0 + uSeed * 0.01) * 0.5 + 0.5;
-        float n2 = snoise(dir * 190.0) * 0.5 + 0.5;
-        float coast = 1.0 + 1.6 * smoothstep(0.08, 0.0, elev);
-        float thr = 1.0 - uCiv * 0.5;
-        float city = smoothstep(thr, thr + 0.07, n1 * coast * 0.8) * smoothstep(0.4, 0.85, n2) * (1.0 - smoothstep(0.3, 0.5, elev));
-        float night = smoothstep(0.05, -0.2, ndlGeo);
-        emiss += vec3(1.0, 0.6, 0.26) * city * night * 2.4 * uForm;
-        albedo = mix(albedo, vec3(0.32), city * 0.35);
+      // ---- civilisation: grows from firelight to planet-spanning networks
+      if (uCiv > 0.11 && temp > -0.3 && temp < 0.62){
+        float night = smoothstep(0.08, -0.22, ndlGeo);
+        float habitable = (1.0 - smoothstep(0.28, 0.5, elev)) * smoothstep(-0.3, -0.18, temp) * (1.0 - smoothstep(0.5, 0.62, temp));
+        float coastal = smoothstep(0.07, 0.0, elev);
+        // pixel footprint, to fade detail finer than a pixel instead of shimmering
+        float px = length(fwidth(dir));
+        float fine = 1.0 - smoothstep(0.0015, 0.005, px);
+
+        // where people live: large-scale density favouring coasts and lowlands
+        float d1 = snoise(dir * 9.0 + uSeed * 0.013) * 0.5 + 0.5;
+        float d2 = snoise(dir * 27.0 + uSeed * 0.021) * 0.5 + 0.5;
+        float density = (d1 * 0.62 + d2 * 0.38 + coastal * 0.32) * habitable;
+        float thr = 0.86 - uCiv * 0.42;
+        float region = smoothstep(thr, thr + 0.14, density);
+        float core = smoothstep(thr + 0.12, thr + 0.3, density);
+
+        // individual towns: two scales of speckle
+        float s1 = snoise(dir * 150.0 + uSeed * 0.05) * 0.5 + 0.5;
+        float s2 = snoise(dir * 430.0 - uSeed * 0.03) * 0.5 + 0.5;
+        float towns = smoothstep(0.62, 0.9, s1) * 0.9 + smoothstep(0.66, 0.92, s2) * 0.75 * fine;
+        float early = 1.0 - smoothstep(0.12, 0.3, uCiv);           // sparse campfires at first
+        float specks = smoothstep(0.5, 0.66, density) * (smoothstep(0.84, 0.95, s1) * 0.9 + smoothstep(0.78, 0.94, s2) * 0.5 * fine);
+        float lights = mix(region * towns, specks, early) + core * (0.12 + 0.55 * smoothstep(0.35, 0.85, s2 * fine + s1 * (1.0 - fine))) * (1.0 - early);
+
+        // roads (planetary and beyond): thin glowing filaments between settlements
+        float roads = 0.0;
+        if (uCiv > 0.45){
+          float r1 = 1.0 - smoothstep(0.0, 0.018, abs(snoise(dir * 13.0 + uSeed * 0.031)));
+          float r2 = 1.0 - smoothstep(0.0, 0.014, abs(snoise(dir * 31.0 - uSeed * 0.017)));
+          roads = max(r1, r2 * 0.7) * smoothstep(thr - 0.2, thr + 0.05, density) * smoothstep(0.45, 0.6, uCiv) * (0.55 + 0.45 * fine);
+        }
+        // spacefaring worlds light up whole continents
+        float sprawl = smoothstep(0.68, 0.95, uCiv) * smoothstep(thr - 0.1, thr + 0.2, density) * 0.12 * (0.5 + s1);
+
+        float glow = (lights * 2.1 + roads * 0.9 + sprawl) * night;
+        emiss += uCivColor * glow * uForm;
+
+        // daytime footprint: grey cities, farmland stripes, industrial haze
+        float day = 1.0 - night;
+        if (uCiv > 0.3){
+          float farmBand = smoothstep(thr - 0.25, thr, density) * (1.0 - region) * smoothstep(0.3, 0.42, uCiv);
+          float stripes = step(0.5, fract(dot(dir, vec3(91.0, 57.0, 73.0)) + snoise(dir * 18.0) * 0.6));
+          albedo = mix(albedo, albedo * mix(vec3(1.18, 1.12, 0.78), vec3(0.82, 0.95, 0.7), stripes), farmBand * 0.45 * day);
+          float haze = region * smoothstep(0.3, 0.45, uCiv) * (1.0 - smoothstep(0.75, 0.9, uCiv));
+          albedo = mix(albedo, vec3(0.42, 0.38, 0.33), haze * 0.22 * day);
+        }
+        albedo = mix(albedo, vec3(0.3, 0.3, 0.32), (region * 0.3 + core * 0.3) * smoothstep(0.2, 0.5, uCiv));
       }
     }
+    // shipping lanes across dark oceans
+      if (uCiv > 0.5 && h < sea && uType < 3.5){
+        float lane = 1.0 - smoothstep(0.0, 0.006, abs(snoise(dir * 3.2 + uSeed * 0.07)));
+        lane *= smoothstep(0.15, 0.45, snoise(dir * 1.7 - uSeed * 0.05));        // only some routes
+        float ships = smoothstep(0.7, 0.92, snoise(dir * 260.0 + vec3(uTime * 0.008)) * 0.5 + 0.5);
+        float depthOk = 1.0 - smoothstep(0.3, 0.6, (sea - h) / max(sea, 0.001));
+        float night = smoothstep(0.08, -0.22, ndlGeo);
+        emiss += uCivColor * lane * (0.06 + ships * 1.6) * depthOk * night * smoothstep(0.5, 0.65, uCiv) * uForm;
+      }
     // molten genesis
     albedo = mix(albedo, vec3(0.04, 0.03, 0.03), forming);
     emiss = mix(emiss, vec3(1.0, 0.32, 0.05) * (0.5 + 2.8 * pow(s.a, 3.0)) + vec3(1.0, 0.7, 0.3) * forming * 0.4, forming);
@@ -397,6 +445,87 @@ void main(){
 }
 `;
 
+// ------------------------------------------------------------------ satellites and stations
+// Each point orbits on its own inclined ring; it glints in sunlight and drops to a
+// faint blinking beacon while it crosses the planet's shadow.
+const SAT_VERT = /* glsl */ `
+attribute vec4 aOrbit;    // radius, inclination, ascending node, phase
+attribute vec2 aInfo;     // angular speed, kind (0 satellite, 1 station)
+uniform float uTime, uPixel, uForm;
+uniform vec3 uSunLocal;
+varying float vLit; varying float vKind; varying float vBlink;
+
+vec2 raySphereS(vec3 ro, vec3 rd, float r){
+  float b = dot(ro, rd); float c = dot(ro, ro) - r * r; float h = b * b - c;
+  if (h < 0.0) return vec2(-1.0); h = sqrt(h); return vec2(-b - h, -b + h);
+}
+void main(){
+  float a = aOrbit.w + uTime * aInfo.x;
+  vec3 p = vec3(cos(a), 0.0, sin(a)) * aOrbit.x;
+  float ci = cos(aOrbit.y), si = sin(aOrbit.y);
+  p = vec3(p.x, p.y * ci - p.z * si, p.y * si + p.z * ci);
+  float cn = cos(aOrbit.z), sn = sin(aOrbit.z);
+  p = vec3(p.x * cn + p.z * sn, p.y, -p.x * sn + p.z * cn);
+  vec2 hit = raySphereS(p, uSunLocal, 1.0);
+  vLit = hit.x > 0.0 ? 0.0 : 1.0;
+  vKind = aInfo.y;
+  vBlink = step(0.86, fract(uTime * (0.35 + aOrbit.w * 0.05) + aOrbit.w));
+  vec4 mv = modelViewMatrix * vec4(p, 1.0);
+  float size = aInfo.y > 0.5 ? 10.0 : 4.6;
+  gl_PointSize = clamp(size * uPixel * (4.0 / -mv.z), 1.5 * uPixel, 24.0 * uPixel) * smoothstep(0.85, 1.0, uForm);
+  gl_Position = projectionMatrix * mv;
+}`;
+const SAT_FRAG = /* glsl */ `
+uniform vec3 uColor;
+varying float vLit; varying float vKind; varying float vBlink;
+void main(){
+  vec2 c = gl_PointCoord - 0.5;
+  float d = length(c);
+  float core = smoothstep(0.5, 0.0, d);
+  vec3 col;
+  float a;
+  if (vKind > 0.5){
+    // stations: a bright core with a cross-shaped glint
+    float cross = (smoothstep(0.06, 0.0, abs(c.x)) + smoothstep(0.06, 0.0, abs(c.y))) * smoothstep(0.5, 0.1, d);
+    col = mix(vec3(1.0, 0.85, 0.55), uColor, 0.3) * (core * 1.6 + cross) * mix(0.25, 1.6, vLit);
+    a = clamp(core + cross, 0.0, 1.0);
+  } else {
+    col = vec3(0.85, 0.92, 1.0) * core * core * mix(0.22, 2.6, vLit) + vec3(1.0, 0.2, 0.15) * core * vBlink * (1.0 - vLit) * 1.2;
+    a = core;
+  }
+  gl_FragColor = vec4(col, a);
+}`;
+
+// ------------------------------------------------------------------ rockets
+// A handful of launches climbing from the surface on repeating, staggered schedules.
+// Each rocket is a short trail of points sampled back along its own path.
+const ROCKET_VERT = /* glsl */ `
+attribute vec3 aSite;       // launch direction on the surface
+attribute vec3 aPath;       // tangent the trajectory bends toward
+attribute vec2 aTiming;     // schedule offset, trail index (0 = head)
+uniform float uTime, uPixel, uForm;
+varying float vHead; varying float vFade;
+void main(){
+  float period = 11.0;
+  float t = mod(uTime + aTiming.x, period) - aTiming.y * 0.07;
+  float k = clamp(t / 4.5, 0.0, 1.0);                 // 4.5 s climb, then quiet
+  float alt = k * k * 0.42;
+  vec3 p = normalize(aSite + aPath * k * k * 0.9) * (1.004 + alt);
+  vHead = 1.0 - aTiming.y / 10.0;
+  vFade = (t > 0.0 && t < 4.5 ? 1.0 : 0.0) * (1.0 - k * 0.6) * smoothstep(0.9, 1.0, uForm);
+  vec4 mv = modelViewMatrix * vec4(p, 1.0);
+  gl_PointSize = clamp((aTiming.y < 0.5 ? 7.0 : 4.0 * vHead) * uPixel * (4.0 / -mv.z), 1.0, 30.0);
+  gl_Position = projectionMatrix * mv;
+}`;
+const ROCKET_FRAG = /* glsl */ `
+varying float vHead; varying float vFade;
+void main(){
+  float d = length(gl_PointCoord - 0.5);
+  float a = smoothstep(0.5, 0.0, d) * vFade * vHead;
+  vec3 col = mix(vec3(1.0, 0.45, 0.12), vec3(1.0, 0.95, 0.8), vHead * vHead) * 2.6;
+  gl_FragColor = vec4(col * a, a);
+}`;
+
 // ------------------------------------------------------------------ accretion particles
 const ACC_VERT = /* glsl */ `
 attribute vec3 aSeed;
@@ -485,7 +614,7 @@ export class Planet {
         ...shared,
         uHeight: { value: this.cubeRT.texture }, uTexel: { value: 1 / size },
         uSea: { value: 0.5 }, uDisp: { value: 0.035 }, uTemp: { value: 0 }, uHumid: { value: 0.5 }, uCiv: { value: 0 },
-        uType: { value: 0 }, uBands: { value: 12 }, uStorm: { value: 0.5 }, uClouds: { value: 0.5 },
+        uType: { value: 0 }, uCivColor: { value: new THREE.Color(1, 0.62, 0.28) }, uBands: { value: 12 }, uStorm: { value: 0.5 }, uClouds: { value: 0.5 },
         uSeed: { value: new THREE.Vector3() }, uToCloud: { value: new THREE.Matrix3() }, uModelRot: { value: new THREE.Matrix3() },
         cDeep: { value: new THREE.Color() }, cShallow: { value: new THREE.Color() }, cBeach: { value: new THREE.Color() },
         cLush: { value: new THREE.Color() }, cDry: { value: new THREE.Color() }, cRock: { value: new THREE.Color() }, cSnow: { value: new THREE.Color() },
@@ -546,6 +675,11 @@ export class Planet {
       this.mega.add(sp);
     }
     this.tilt.add(this.mega);
+
+    this.civGroup = new THREE.Group();     // satellites orbit with the tilt, not the spin
+    this.tilt.add(this.civGroup);
+    this.civUniforms = { uTime: this.shared.uTime, uForm: this.shared.uForm, uPixel: { value: Math.min(2, window.devicePixelRatio) }, uSunLocal: { value: new THREE.Vector3(1, 0, 0) }, uColor: { value: new THREE.Color() } };
+    this.civKey = '';
 
     this.moons = [];
     this.moonGroup = new THREE.Group();
@@ -619,6 +753,8 @@ export class Planet {
     s.uTemp.value = dna.temperature;
     s.uHumid.value = dna.humidity;
     s.uCiv.value = dna.civ;
+    s.uCivColor.value.setRGB(...civLightColor(dna));
+    this.civUniforms.uColor.value.setRGB(...civLightColor(dna));
     s.uBands.value = dna.bands;
     s.uStorm.value = dna.storm;
     s.uClouds.value = isGas ? 0 : dna.clouds;
@@ -661,8 +797,72 @@ export class Planet {
 
     this.tilt.rotation.z = dna.tilt;
     this.buildMoons(dna);
+    this.buildCiv(dna);
 
     if (genesis) this.startGenesis();
+  }
+
+  // Spacefaring worlds get satellites, a few stations and regular launches.
+  buildCiv(dna) {
+    const level = dna.type === 'gas' ? 0 : dna.civ;
+    const key = `${level.toFixed(2)}|${dna.seedX}`;
+    if (key === this.civKey) return;
+    this.civKey = key;
+    for (const o of [...this.civGroup.children]) { o.geometry.dispose(); o.material.dispose(); this.civGroup.remove(o); }
+    if (this.rockets) { this.rockets.geometry.dispose(); this.rockets.material.dispose(); this.surface.remove(this.rockets); this.rockets = null; }
+    if (level < 0.7) return;
+
+    let seed = Math.abs(Math.floor(dna.seedX * 1000)) + 7;
+    const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+
+    // satellites + stations
+    const sats = Math.round(70 + (level - 0.7) * 700);
+    const stations = level > 0.86 ? 5 : 2;
+    const n = sats + stations;
+    const orbit = new Float32Array(n * 4), info = new Float32Array(n * 2);
+    const shells = [1.06, 1.1, 1.16, 1.3];           // low orbit bands plus a high band
+    for (let i = 0; i < n; i++) {
+      const station = i >= sats;
+      const band = station ? 1.12 + rnd() * 0.08 : shells[Math.floor(rnd() * shells.length)] + rnd() * 0.03;
+      const inc = station ? rnd() * 0.5 : (rnd() < 0.3 ? 1.4 + rnd() * 0.3 : rnd() * 1.1);   // some near-polar
+      orbit.set([band, inc, rnd() * Math.PI * 2, rnd() * Math.PI * 2], i * 4);
+      info.set([(0.22 / Math.pow(band, 1.5)) * (rnd() < 0.12 ? -1 : 1), station ? 1 : 0], i * 2);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+    g.setAttribute('aOrbit', new THREE.BufferAttribute(orbit, 4));
+    g.setAttribute('aInfo', new THREE.BufferAttribute(info, 2));
+    const satMat = new THREE.ShaderMaterial({ vertexShader: SAT_VERT, fragmentShader: SAT_FRAG, uniforms: this.civUniforms, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+    const satPoints = new THREE.Points(g, satMat);
+    satPoints.frustumCulled = false;
+    satPoints.renderOrder = 4;
+    this.civGroup.add(satPoints);
+
+    // rockets: launch sites scattered at mid latitudes, trails of 10 points each
+    const rockets = level > 0.86 ? 6 : 3, trail = 10;
+    const m = rockets * trail;
+    const site = new Float32Array(m * 3), path = new Float32Array(m * 3), timing = new Float32Array(m * 2);
+    for (let r = 0; r < rockets; r++) {
+      const lat = (rnd() - 0.5) * 1.2, lon = rnd() * Math.PI * 2;
+      const dir = new THREE.Vector3(Math.cos(lat) * Math.cos(lon), Math.sin(lat), Math.cos(lat) * Math.sin(lon));
+      const east = new THREE.Vector3(0, 1, 0).cross(dir).normalize();
+      const offset = rnd() * 11;
+      for (let k = 0; k < trail; k++) {
+        const i = r * trail + k;
+        site.set([dir.x, dir.y, dir.z], i * 3);
+        path.set([east.x, east.y, east.z], i * 3);
+        timing.set([offset, k], i * 2);
+      }
+    }
+    const rg = new THREE.BufferGeometry();
+    rg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(m * 3), 3));
+    rg.setAttribute('aSite', new THREE.BufferAttribute(site, 3));
+    rg.setAttribute('aPath', new THREE.BufferAttribute(path, 3));
+    rg.setAttribute('aTiming', new THREE.BufferAttribute(timing, 2));
+    this.rockets = new THREE.Points(rg, new THREE.ShaderMaterial({ vertexShader: ROCKET_VERT, fragmentShader: ROCKET_FRAG, uniforms: this.civUniforms, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    this.rockets.frustumCulled = false;
+    this.rockets.renderOrder = 4;
+    this.surface.add(this.rockets);                    // launch sites turn with the planet
   }
 
   buildMoons(dna) {
@@ -729,6 +929,11 @@ export class Planet {
       this.pulseT += dt;
       this.shockMat.opacity = Math.max(0, 1 - this.pulseT / 1.6) * 0.8;
       this.shock.scale.setScalar(1 + this.pulseT * 9);
+    }
+
+    if (this.civGroup.children.length) {
+      const q = this.civGroup.getWorldQuaternion(new THREE.Quaternion()).invert();
+      this.civUniforms.uSunLocal.value.copy(this.sunDir).applyQuaternion(q).normalize();
     }
 
     const spin = dna.spin * 0.06;

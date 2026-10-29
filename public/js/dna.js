@@ -349,7 +349,7 @@ export function profile(name, dna) {
   const parts = [];
   parts.push(`Orbiting ${starDesc} star ${lyFromCore.toLocaleString()} light-years from the galactic core, ${name} is ${/^[aeiou]/i.test(TYPE_INFO[dna.type].label) ? 'an' : 'a'} ${TYPE_INFO[dna.type].label.toLowerCase()}.`);
   parts.push(r.pick(LORE[dna.type]));
-  if (dna.civ > 0.12) parts.push(r.pick(LIFE)(civName));
+  if (dna.civ > 0.12) { parts.push(r.pick(LIFE)(civName)); parts.push(civStage(dna).line); }
   else if (habit > 0.35) parts.push(r.pick(MICRO));
   else parts.push(r.pick(DEAD));
   if (dna.megastructure) parts.push(`An artificial ring encircles its equator, a megastructure the ${civName} refuse to explain.`);
@@ -394,4 +394,29 @@ export function randomName() {
   const f = FIRST[Math.floor(Math.random() * FIRST.length)];
   const s = SECOND[Math.floor(Math.random() * SECOND.length)];
   return Math.random() < 0.25 ? f + '-' + Math.floor(Math.random() * 900 + 100) : f + s;
+}
+
+// ------------------------------------------------------------------ civilisations
+// Five stages a species can reach, from campfires to stellar engineering.
+// civ below 0.12 means no intelligent life (matches profile()).
+export const CIV_STAGES = [
+  { min: 0.12, key: 'early', label: 'Early settlements', kardashev: 'Type 0.3', line: 'Scattered firelight traces their rivers and coasts at night.' },
+  { min: 0.3, key: 'industrial', label: 'Industrial', kardashev: 'Type 0.6', line: 'Their cities glow through a faint industrial haze, ringed by patchwork farmland.' },
+  { min: 0.5, key: 'planetary', label: 'Planetary', kardashev: 'Type 0.8', line: 'Glowing roads stitch their cities together, and shipping lanes cross the dark seas.' },
+  { min: 0.7, key: 'spacefaring', label: 'Spacefaring', kardashev: 'Type I', line: 'Satellites swarm their skies and rockets climb from the night side.' },
+  { min: 0.86, key: 'stellar', label: 'Stellar engineers', kardashev: 'Type I.5', line: 'A swarm of collectors glitters around their star, harvesting its light.' },
+];
+
+export function civStage(dna) {
+  let stage = null;
+  for (const s of CIV_STAGES) if (dna.civ >= s.min) stage = s;
+  return stage;
+}
+
+// The colour of a species' lights, fixed per world.
+const LIGHT_COLORS = [[1.0, 0.62, 0.28], [1.0, 0.86, 0.62], [0.62, 0.82, 1.0], [0.55, 1.0, 0.62], [1.0, 0.5, 0.86]];
+export function civLightColor(dna) {
+  const k = Math.abs(Math.floor((dna.seedY || 0) * 7.31)) % 100;
+  if (dna.type === 'toxic') return k < 50 ? LIGHT_COLORS[3] : LIGHT_COLORS[4];
+  return k < 55 ? LIGHT_COLORS[0] : k < 75 ? LIGHT_COLORS[1] : k < 92 ? LIGHT_COLORS[2] : LIGHT_COLORS[3];
 }

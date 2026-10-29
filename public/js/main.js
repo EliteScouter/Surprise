@@ -11,7 +11,7 @@ import { Ambience } from './audio.js';
 import { isOffensive } from './filter.js';
 import {
   dnaFromName, slugify, profile, rarityOf, rarityPercentile, formatPop, worldColorHue, TYPE_INFO, TYPES, RARITY,
-  PALETTES, GAS_PALETTES, randomName,
+  PALETTES, GAS_PALETTES, randomName, civStage,
 } from './dna.js';
 
 const $ = s => document.querySelector(s);
@@ -308,7 +308,8 @@ function renderDossier(retype) {
     ['Atmosphere', `<small>${pr.atmo}</small>`, true],
     ['Habitability', `${hab}<small>%</small><div class="bar"><i style="width:${hab}%; background-position:${-300 + hab * 3}px 0"></i></div>`, true],
   ].map(([k, v, wide]) => `<div class="stat${wide ? ' wide' : ''}"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('')
-    + (pr.species ? `<div class="stat wide"><div class="k">Dominant species</div><div class="v">The ${esc(pr.species)}</div></div>` : '');
+    + (pr.species ? `<div class="stat wide"><div class="k">Dominant species</div><div class="v">The ${esc(pr.species)}</div></div>` : '')
+    + (civStage(d) && d.type !== 'gas' ? `<div class="stat wide"><div class="k">Civilisation</div><div class="v">${esc(civStage(d).label)} <small>· Kardashev ${esc(civStage(d).kardashev)}</small><div class="bar"><i style="width:${Math.round(d.civ * 100)}%; background:linear-gradient(90deg, #ffb36b, #8fd3ff, #c79bff)"></i></div></div></div>` : '');
   S.lore = pr.lore;
   if (!retype) $('#dLore').textContent = pr.lore;
   else $('#dLore').textContent = '';
@@ -1104,3 +1105,4 @@ async function boot() {
   }
 }
 boot();
+if (DEBUG_TICK) window.__ws = { planet, planetCam, planetControls, S, applyWorld };
