@@ -6,6 +6,24 @@ import { paletteFor, civLightColor } from './dna.js';
 
 const TYPE_ID = { terran: 0, ocean: 1, desert: 2, ice: 3, lava: 4, gas: 5, barren: 6, toxic: 7 };
 
+// where a singularity companion hangs in the sky (upper right of the opening shot, clear of the dossier)
+export const BH_DIR = new THREE.Vector3(0.24, 0.13, -1).normalize();
+
+// cellular noise on a sphere direction: x = distance to nearest cell, y = second nearest, z = cell hash
+const VORONOI = /* glsl */ `
+vec3 voronoi(vec3 p){
+  vec3 b = floor(p), f = fract(p);
+  float d1 = 8.0, d2 = 8.0, id = 0.0;
+  for (int k = -1; k <= 1; k++) for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++){
+    vec3 g = vec3(float(i), float(j), float(k));
+    vec3 o = fract(sin(vec3(dot(b + g, vec3(127.1, 311.7, 74.7)), dot(b + g, vec3(269.5, 183.3, 246.1)), dot(b + g, vec3(113.5, 271.9, 124.6)))) * 43758.5453);
+    float d = length(g + o - f);
+    if (d < d1){ d2 = d1; d1 = d; id = fract(o.x * 7.13 + o.y * 3.71); } else if (d < d2) d2 = d;
+  }
+  return vec3(d1, d2, id);
+}
+`;
+
 // ------------------------------------------------------------------ bake
 const BAKE_FRAG = /* glsl */ `
 ${NOISE}
@@ -67,16 +85,30 @@ void main(){
 
 // ------------------------------------------------------------------ surface
 const SURFACE_VERT = /* glsl */ `
+${VORONOI}
 uniform samplerCube uHeight;
-uniform float uSea, uDisp, uForm;
+uniform float uSea, uDisp, uForm, uAnomaly, uTime;
+uniform vec3 uSeed;
 varying vec3 vDir;
 varying vec3 vWorldPos;
 void main(){
   vDir = normalize(position);
-  float h = textureLod(uHeight, vDir, 0.0).r;
+  vec3 look = vDir;
+  if (uAnomaly > 2.5 && uAnomaly < 3.5) look = normalize(floor(vDir * 48.0) / 48.0 + 0.5 / 48.0);
+  float h = textureLod(uHeight, look, 0.0).r;
   float sea = uSea * smoothstep(0.3, 0.85, uForm);
   float lift = max(h - sea, 0.0) * uDisp;
+  if (uAnomaly > 1.5 && uAnomaly < 2.5){
+    vec3 v = voronoi(vDir * 3.2 + uSeed * 0.01);
+    lift -= (1.0 - smoothstep(0.0, 0.16, v.y - v.x)) * 0.06 * uForm;
+  }
   vec3 pos = vDir * (1.0 + lift);
+  if (uAnomaly > 2.5 && uAnomaly < 3.5){
+    float tick = floor(uTime * 5.0);
+    float jump = step(0.93, fract(sin(tick * 91.7) * 43758.5));
+    float row = step(0.7, fract(sin(floor(vDir.y * 14.0) * 17.3 + tick) * 43758.5));
+    pos.x += jump * row * 0.035;
+  }
   vec4 wp = modelMatrix * vec4(pos, 1.0);
   vWorldPos = wp.xyz;
   gl_Position = projectionMatrix * viewMatrix * wp;
@@ -86,8 +118,9 @@ void main(){
 const SURFACE_FRAG = /* glsl */ `
 ${NOISE}
 ${CLOUDS}
+${VORONOI}
 uniform samplerCube uHeight;
-uniform float uTexel, uSea, uDisp, uForm, uTemp, uHumid, uCiv, uType, uBands, uStorm, uClouds;
+uniform float uTexel, uSea, uDisp, uForm, uTemp, uHumid, uCiv, uType, uBands, uStorm, uClouds, uAnomaly;
 uniform vec3 uCivColor;
 uniform vec3 cDeep, cShallow, cBeach, cLush, cDry, cRock, cSnow;
 uniform vec3 uSeed;
@@ -121,7 +154,9 @@ vec3 gasGiant(vec3 d){
 
 void main(){
   vec3 dir = normalize(vDir);
-  vec3 gN = normalize(uModelRot * dir);
+  bool glitch = uAnomaly > 2.5 && uAnomaly < 3.5;
+  if (glitch) dir = normalize(floor(dir * 48.0) / 48.0 + 0.5 / 48.0);
+  vec3 gN = normalize(uModelRot * normalize(vDir));
   vec3 V = normalize(cameraPosition - vWorldPos);
   float ndlGeo = dot(gN, uSunDir);
   float forming = 1.0 - smoothstep(0.0, 0.75, uForm);
@@ -234,6 +269,38 @@ void main(){
         float night = smoothstep(0.08, -0.22, ndlGeo);
         emiss += uCivColor * lane * (0.06 + ships * 1.6) * depthOk * night * smoothstep(0.5, 0.65, uCiv) * uForm;
       }
+    // ---- anomalies
+    if (uAnomaly > 0.5 && uAnomaly < 1.5){                 // crystal: faceted, prismatic, lit from within
+      vec3 v = voronoi(dir * 12.0 + uSeed * 0.01);
+      vec3 v2 = voronoi(dir * 4.0 - uSeed * 0.02);
+      float seam = 1.0 - smoothstep(0.0, 0.035, v.y - v.x);
+      float fresC = pow(1.0 - max(dot(gN, V), 0.0), 2.0);
+      vec3 facet = hash33(vec3(v.z * 91.0, v2.z * 37.0, 3.1)) * 2.0 - 1.0;
+      vec3 Nf = normalize(N + uModelRot * facet * 0.5);
+      float hue = fract(v2.z * 0.35 + v.z * 0.12 + dot(Nf, V) * 0.9 + uTime * 0.01);
+      vec3 irid = 0.5 + 0.5 * cos(6.2831 * (hue + vec3(0.0, 0.33, 0.67)));
+      bool wet = h < sea;
+      albedo = wet ? mix(vec3(0.05, 0.03, 0.12), irid * 0.2, 0.3) : mix(vec3(0.7, 0.76, 0.88), irid, 0.22 + 0.5 * fresC) * (0.75 + 0.25 * (1.0 - seam));
+      spec = wet ? 1.0 : 0.0;
+      if (!wet){
+        N = Nf;
+        vec3 Hf = normalize(uSunDir + V);
+        float glint = pow(max(dot(Nf, Hf), 0.0), 90.0) * smoothstep(-0.05, 0.2, ndlGeo);
+        emiss += (uSunColor * 1.6 + irid * 0.6) * glint * uForm;
+      }
+      float night = smoothstep(0.1, -0.25, ndlGeo);
+      emiss += irid * (seam * 0.7 + 0.04) * (0.1 + 0.9 * night) * uForm;
+    } else if (uAnomaly > 1.5 && uAnomaly < 2.5){          // shattered: plates split by glowing seams
+      vec3 v = voronoi(dir * 3.2 + uSeed * 0.01);
+      vec3 w = voronoi(dir * 11.0 - uSeed * 0.02);
+      float big = 1.0 - smoothstep(0.0, 0.16, v.y - v.x);
+      float core = 1.0 - smoothstep(0.0, 0.05, v.y - v.x);
+      float fine = (1.0 - smoothstep(0.0, 0.035, w.y - w.x)) * (1.0 - smoothstep(0.0, 0.55, v.y - v.x));
+      albedo = mix(albedo * 0.55, vec3(0.06, 0.03, 0.02), big);
+      spec *= 1.0 - big;
+      float pulse = 0.85 + 0.15 * sin(uTime * 1.3 + v.z * 20.0);
+      emiss += (vec3(1.0, 0.3, 0.05) * big * 1.4 + vec3(1.0, 0.75, 0.4) * core * 2.6 + vec3(1.0, 0.4, 0.1) * fine * 0.9) * pulse * uForm;
+    }
     // molten genesis
     albedo = mix(albedo, vec3(0.04, 0.03, 0.03), forming);
     emiss = mix(emiss, vec3(1.0, 0.32, 0.05) * (0.5 + 2.8 * pow(s.a, 3.0)) + vec3(1.0, 0.7, 0.3) * forming * 0.4, forming);
@@ -257,7 +324,57 @@ void main(){
   vec3 col = albedo * (uSunColor * diff * shadow + uSun2Color * diff2 + vec3(0.012, 0.014, 0.02));
   col += uSunColor * sp * spec * term * shadow * (0.6 + fres);
   col += emiss;
+  if (glitch){
+    float tick = floor(uTime * 7.0);
+    col = floor(col * 6.0 + 0.5) / 6.0;                                    // posterised
+    float tear = fract(sin(floor(dir.y * 26.0) * 12.9898 + tick * 4.1) * 43758.5);
+    if (tear > 0.9) col = col.gbr * 1.5;                                    // torn scanline bands
+    vec3 q = floor(dir * 150.0);
+    float chk = mod(q.x + q.y + q.z, 2.0);
+    float lost = step(0.955, hash33(floor(dir * 7.0) + floor(uTime * 1.1)).y); // missing texture blocks
+    col = mix(col, mix(vec3(0.02), vec3(1.2, 0.0, 1.1), chk), lost);
+    vec3 g = abs(fract(normalize(vDir) * 48.0) - 0.5);
+    float grid = smoothstep(0.46, 0.5, max(g.x, max(g.y, g.z)));
+    col += vec3(0.0, 1.0, 0.85) * grid * (0.05 + 0.5 * smoothstep(0.05, -0.25, ndlGeo)) * uForm;
+    col *= 0.86 + 0.14 * step(0.5, fract(gl_FragCoord.y * 0.5));
+  }
   gl_FragColor = vec4(col, 1.0);
+}
+`;
+
+// shattered worlds: tumbling chunks of the planet's own crust
+const DEBRIS_VERT = /* glsl */ `
+${NOISE}
+attribute vec4 aSpin;
+attribute float aHot;
+uniform float uTime;
+varying vec3 vN; varying vec3 vWorldPos; varying float vHot;
+void main(){
+  float a = uTime * aSpin.w;
+  vec3 k = normalize(aSpin.xyz);
+  vec3 p = rotateAxis(position, k, a);
+  vec3 n = rotateAxis(normal, k, a);
+  vec4 wp = modelMatrix * instanceMatrix * vec4(p, 1.0);
+  vWorldPos = wp.xyz;
+  vN = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * n);
+  vHot = aHot;
+  gl_Position = projectionMatrix * viewMatrix * wp;
+}
+`;
+const DEBRIS_FRAG = /* glsl */ `
+${NOISE}
+uniform vec3 uSunDir, uSunColor, uCenter;
+uniform float uRadius, uForm;
+varying vec3 vN; varying vec3 vWorldPos; varying float vHot;
+void main(){
+  vec3 N = normalize(vN);
+  vec2 hit = raySphere(vWorldPos - uCenter, uSunDir, uRadius);
+  float lit = hit.y > 0.0 ? 0.0 : 1.0;
+  float ndl = max(dot(N, uSunDir), 0.0);
+  vec3 rock = vec3(0.32, 0.27, 0.24);
+  vec3 col = rock * uSunColor * ndl * lit + rock * 0.02;
+  col += vec3(1.0, 0.38, 0.08) * vHot * (0.6 + 0.4 * (1.0 - ndl)) * 1.6;
+  gl_FragColor = vec4(col * smoothstep(0.7, 1.0, uForm), 1.0);
 }
 `;
 
@@ -560,6 +677,10 @@ const ease = {
   out: x => 1 - Math.pow(1 - x, 3),
 };
 
+const SUN2_DEFAULT = new THREE.Vector3(-0.8, 0.35, 0.3).normalize();
+const SUN2_LIGHT = new THREE.Color(1, 0.55, 0.45);
+const BH_LIGHT = new THREE.Color(1, 0.45, 0.16).multiplyScalar(0.45);
+
 export class Planet {
   constructor(renderer, { quality = 'high' } = {}) {
     this.renderer = renderer;
@@ -569,8 +690,9 @@ export class Planet {
     this.time = 0;
     this.genesisT = 1e9;
     this.sunDir = new THREE.Vector3(1, 0.22, 0.32).normalize();
-    this.sun2Dir = new THREE.Vector3(-0.8, 0.35, 0.3).normalize();
+    this.sun2Dir = SUN2_DEFAULT.clone();
 
+    this.quality = quality;
     const size = quality === 'low' ? 384 : quality === 'mid' ? 640 : 1024;
     const gl = renderer.getContext();
     const canFloat = renderer.capabilities.isWebGL2 && (renderer.extensions.has('EXT_color_buffer_float') || renderer.extensions.has('EXT_color_buffer_half_float'));
@@ -601,7 +723,7 @@ export class Planet {
     const shared = {
       uSunDir: { value: this.sunDir }, uSun2Dir: { value: this.sun2Dir },
       uSunColor: { value: new THREE.Color(1, 0.96, 0.9).multiplyScalar(1.15) },
-      uSun2Color: { value: new THREE.Color(1, 0.55, 0.45) },
+      uSun2Color: { value: SUN2_LIGHT.clone() },
       uBinary: { value: 0 }, uTime: { value: 0 }, uForm: { value: 1 },
       uCloudSeed: { value: new THREE.Vector3() }, uCover: { value: 0.5 },
     };
@@ -614,7 +736,7 @@ export class Planet {
         ...shared,
         uHeight: { value: this.cubeRT.texture }, uTexel: { value: 1 / size },
         uSea: { value: 0.5 }, uDisp: { value: 0.035 }, uTemp: { value: 0 }, uHumid: { value: 0.5 }, uCiv: { value: 0 },
-        uType: { value: 0 }, uCivColor: { value: new THREE.Color(1, 0.62, 0.28) }, uBands: { value: 12 }, uStorm: { value: 0.5 }, uClouds: { value: 0.5 },
+        uAnomaly: { value: 0 }, uType: { value: 0 }, uCivColor: { value: new THREE.Color(1, 0.62, 0.28) }, uBands: { value: 12 }, uStorm: { value: 0.5 }, uClouds: { value: 0.5 },
         uSeed: { value: new THREE.Vector3() }, uToCloud: { value: new THREE.Matrix3() }, uModelRot: { value: new THREE.Matrix3() },
         cDeep: { value: new THREE.Color() }, cShallow: { value: new THREE.Color() }, cBeach: { value: new THREE.Color() },
         cLush: { value: new THREE.Color() }, cDry: { value: new THREE.Color() }, cRock: { value: new THREE.Color() }, cSnow: { value: new THREE.Color() },
@@ -762,7 +884,6 @@ export class Planet {
 
     this.shared.uCover.value = dna.clouds;
     this.shared.uCloudSeed.value.set(dna.seedZ % 97, dna.seedX % 97, dna.seedY % 97);
-    this.shared.uBinary.value = dna.binary ? 1 : 0;
     this.clouds.visible = !isGas && dna.clouds > 0.01;
     const cc = this.cloudMat.uniforms.uCloudColor.value;
     if (dna.type === 'lava') cc.setRGB(0.18, 0.15, 0.14);
@@ -794,6 +915,14 @@ export class Planet {
 
     this.mega.visible = !!dna.megastructure;
     this.megaMat.uniforms.uColor.value.setHSL((dna.atmoHue + 0.5) % 1, 0.8, 0.6);
+
+    // anomalies
+    s.uAnomaly.value = dna.anomaly || 0;
+    const sing = dna.anomaly === 4;
+    this.sun2Dir.copy(sing ? BH_DIR : SUN2_DEFAULT);
+    this.shared.uSun2Color.value.copy(sing ? BH_LIGHT : SUN2_LIGHT);
+    this.shared.uBinary.value = dna.binary || sing ? 1 : 0;
+    this.buildDebris(dna);
 
     this.tilt.rotation.z = dna.tilt;
     this.buildMoons(dna);
@@ -863,6 +992,44 @@ export class Planet {
     this.rockets.frustumCulled = false;
     this.rockets.renderOrder = 4;
     this.surface.add(this.rockets);                    // launch sites turn with the planet
+  }
+
+  // a shattered world drags a river of its own crust around with it
+  buildDebris(dna) {
+    const want = dna.anomaly === 2 ? String(dna.seedX) : '';
+    if (want === this.debrisKey) return;
+    this.debrisKey = want;
+    if (this.debris) { this.debris.geometry.dispose(); this.debris.material.dispose(); this.tilt.remove(this.debris); this.debris = null; }
+    if (!want) return;
+    let seed = Math.abs(Math.floor(dna.seedX * 977)) + 11;
+    const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    const n = this.quality === 'low' ? 350 : 900;
+    const geo = new THREE.IcosahedronGeometry(1, 0);
+    const spin = new Float32Array(n * 4), hot = new Float32Array(n);
+    const mesh = new THREE.InstancedMesh(geo, new THREE.ShaderMaterial({
+      vertexShader: DEBRIS_VERT, fragmentShader: DEBRIS_FRAG,
+      uniforms: { uTime: this.shared.uTime, uForm: this.shared.uForm, uSunDir: this.shared.uSunDir, uSunColor: this.shared.uSunColor, uCenter: { value: new THREE.Vector3() }, uRadius: { value: 1 } },
+    }), n);
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), sc = new THREE.Vector3();
+    for (let i = 0; i < n; i++) {
+      // a lumpy torus, densest in the middle, with a few strays far out
+      const a = rnd() * Math.PI * 2;
+      const r = 1.35 + Math.pow(rnd(), 1.6) * 0.9 + (rnd() < 0.05 ? rnd() * 0.8 : 0);
+      const y = (rnd() + rnd() + rnd() - 1.5) * 0.09 * r;
+      p.set(Math.cos(a) * r, y, Math.sin(a) * r);
+      const big = rnd() < 0.04;
+      const s = big ? 0.03 + rnd() * 0.035 : 0.004 + Math.pow(rnd(), 2.5) * 0.02;
+      sc.set(s * (0.6 + rnd() * 0.8), s * (0.5 + rnd() * 0.6), s * (0.6 + rnd() * 0.8));
+      q.setFromAxisAngle(new THREE.Vector3(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).normalize(), rnd() * 6.28);
+      mesh.setMatrixAt(i, m.compose(p, q, sc));
+      spin.set([rnd() - 0.5, rnd() - 0.5, rnd() - 0.5, (rnd() - 0.5) * (big ? 0.3 : 1.6)], i * 4);
+      hot[i] = rnd() < 0.18 ? 0.3 + rnd() * 0.7 : 0;
+    }
+    geo.setAttribute('aSpin', new THREE.InstancedBufferAttribute(spin, 4));
+    geo.setAttribute('aHot', new THREE.InstancedBufferAttribute(hot, 1));
+    mesh.frustumCulled = false;
+    this.debris = mesh;
+    this.tilt.add(mesh);
   }
 
   buildMoons(dna) {
@@ -940,6 +1107,7 @@ export class Planet {
     this.surface.rotation.y += spin * dt;
     this.clouds.rotation.y += spin * 1.18 * dt;
     this.mega.rotation.y -= dt * 0.02;
+    if (this.debris) this.debris.rotation.y += dt * 0.035;
 
     this.group.updateMatrixWorld(true);
     // cloud-space transform for shadows
@@ -957,6 +1125,7 @@ export class Planet {
     const r = this.ringMat.uniforms;
     r.uCenter.value.copy(center); r.uRadius.value = radius; r.uNormal.value.copy(a.uAxis.value);
 
+    if (this.debris) { this.debris.material.uniforms.uCenter.value.copy(center); this.debris.material.uniforms.uRadius.value = radius; }
     for (const m of this.moons) {
       m.pivot.rotation.y = m.phase + this.time * m.speed;
       m.mesh.rotation.y += dt * 0.05;

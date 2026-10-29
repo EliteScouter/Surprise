@@ -10,7 +10,7 @@ import { Space } from './space.js';
 import { Ambience } from './audio.js';
 import { isOffensive } from './filter.js';
 import {
-  dnaFromName, slugify, profile, rarityOf, rarityPercentile, formatPop, worldColorHue, TYPE_INFO, TYPES, RARITY,
+  dnaFromName, slugify, profile, rarityOf, rarityPercentile, formatPop, worldColorHue, TYPE_INFO, TYPES, RARITY, ANOMALIES,
   PALETTES, GAS_PALETTES, randomName, civStage,
 } from './dna.js';
 
@@ -287,10 +287,11 @@ function renderDossier(retype) {
   r.style.setProperty('--rc', rar.color);
   r.className = 'rarity ' + rar.name.toLowerCase();
   // a 4,000-name sample can't resolve the top tiers, so those show their odds instead
-  const note = rar.odds >= 95 ? `about 1 in ${rar.odds.toLocaleString()} worlds` : `rarer than ${(pct * 100).toFixed(0)}% of worlds`;
+  const note = rar.name === 'Anomaly' ? 'one in a million' : rar.odds >= 95 ? `about 1 in ${rar.odds.toLocaleString()} worlds` : `rarer than ${(pct * 100).toFixed(0)}% of worlds`;
   r.innerHTML = `✦ ${rar.name} <span class="pct">· ${note}</span>`;
   $('#dName').textContent = w.name;
-  $('#dClass').textContent = `${TYPE_INFO[d.type].glyph}  ${TYPE_INFO[d.type].label} · ${pr.designation}`;
+  const anom = ANOMALIES[w.origin.anomaly || 0];
+  $('#dClass').textContent = `${TYPE_INFO[d.type].glyph}  ${anom ? anom.label : TYPE_INFO[d.type].label} · ${pr.designation}`;
   const disc = $('#dDisc');
   if (w.record) {
     const who = w.record.ownerSlug ? `<a href="/u/${esc(w.record.ownerSlug)}" data-link><b>${esc(w.record.discoverer)}</b></a>` : `<b>${esc(w.record.discoverer)}</b>`;
@@ -1000,7 +1001,7 @@ async function showProfile(slug) {
     $('#pAvatar').textContent = user.handle[0].toUpperCase();
     $('#pName').textContent = user.handle;
     $('#pMeta').textContent = `Explorer since ${new Date(user.createdAt).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}`;
-    const order = ['Mythic', 'Legendary', 'Epic', 'Rare', 'Uncommon', 'Common'];
+    const order = ['Anomaly', 'Mythic', 'Legendary', 'Epic', 'Rare', 'Uncommon', 'Common'];
     const best = worlds.map(w => w.rarity).sort((a, b) => order.indexOf(a) - order.indexOf(b))[0];
     $('#pStats').innerHTML = `<div><b>${worlds.length}</b><span>worlds</span></div><div><b>${stars}</b><span>stars</span></div><div><b>${esc(best || '—')}</b><span>rarest</span></div>`;
     const color = r => (RARITY.find(x => x.name === r) || RARITY[0]).color;
@@ -1020,7 +1021,7 @@ async function showProfile(slug) {
 $('#pWorlds').addEventListener('click', e => { const c = e.target.closest('[data-id]'); if (c) navigate('/w/' + c.dataset.id); });
 
 // ------------------------------------------------------------------ leaderboards
-const RANK_ORDER = ['Mythic', 'Legendary', 'Epic', 'Rare', 'Uncommon', 'Common'];
+const RANK_ORDER = ['Anomaly', 'Mythic', 'Legendary', 'Epic', 'Rare', 'Uncommon', 'Common'];
 const rarityColor = r => (RARITY.find(x => x.name === r) || RARITY[0]).color;
 const by = w => w.ownerSlug ? `<a href="/u/${esc(w.ownerSlug)}" data-link>${esc(w.discoverer)}</a>` : esc(w.discoverer);
 
@@ -1060,7 +1061,7 @@ async function showLeaders() {
     $('#lbFirstEver').innerHTML = ever ? `<div class="first-hero" data-world="${esc(ever.id)}"><i class="orb" style="--h:${Math.round(ever.hue * 360)}"></i>
         <div><span class="tag-first">First world ever claimed</span><h4>${esc(ever.name)}</h4><p>Discovered by ${by(ever)} · ${new Date(ever.createdAt).toLocaleDateString(undefined, { dateStyle: 'long' })}</p></div></div>`
       : '<div class="first-hero empty">No world has been claimed yet. The very first spot in history is open.</div>';
-    $('#lbFirstRarity').innerHTML = ['Mythic', 'Legendary', 'Epic', 'Rare'].map(r => {
+    $('#lbFirstRarity').innerHTML = ['Anomaly', 'Mythic', 'Legendary', 'Epic', 'Rare'].map(r => {
       const w = lb.firsts.rarity[r];
       return `<div class="first-card${w ? '' : ' open'}" style="--rc:${rarityColor(r)}" ${w ? `data-world="${esc(w.id)}"` : ''}>
         <span class="tag-first">First ${r}</span>${w ? `<b>${esc(w.name)}</b><span>by ${by(w)}</span>` : '<b>Unclaimed</b><span>Could be yours</span>'}</div>`;

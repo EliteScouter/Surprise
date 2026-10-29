@@ -1,7 +1,7 @@
 // Deep-space backdrop for the planet view: starfield with a milky band, a nebula shell, and the suns.
 import * as THREE from 'three';
 import { NOISE } from './glsl.js';
-import { makeGlowTexture } from './planet.js';
+import { makeGlowTexture, BH_DIR } from './planet.js';
 
 const NEB_VERT = /* glsl */ `
 varying vec3 vDir;
@@ -20,6 +20,61 @@ void main(){
   vec3 col = mix(uColA, uColB, m) * cloud * uAmt;
   col += vec3(0.6, 0.65, 0.8) * band * 0.012 * (0.5 + m);
   gl_FragColor = vec4(col, 1.0);
+}
+`;
+
+// A black hole seen almost edge-on, drawn analytically on a camera-facing card:
+// the shadow, the photon ring, the near half of the accretion disk crossing in
+// front, and the far half lensed up over the top and under the bottom.
+const BH_FRAG = /* glsl */ `
+uniform float uTime;
+varying vec2 vUv;
+const float RS = 0.15, RIN = 0.24, ROUT = 0.8, COSI = 0.17;
+float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), f.x), mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+float fbm2(vec2 p){ float s = 0.0, a = 0.5; for (int i = 0; i < 5; i++){ s += a * vnoise(p); p = p * 2.03 + 1.7; a *= 0.5; } return s; }
+// emission of the disk at radius r and azimuth ang
+vec3 disk(float r, float ang){
+  if (r < RIN || r > ROUT) return vec3(0.0);
+  float t = (r - RIN) / (ROUT - RIN);
+  float a = ang - uTime * 0.35 / pow(r / RIN, 1.5);           // inner gas laps the outer
+  float n = fbm2(vec2(cos(a), sin(a)) * (2.0 + r * 5.0) + r * 9.0);
+  float lanes = 0.55 + 0.45 * sin(r * 70.0 + n * 7.0);
+  float inten = pow(1.0 - t, 1.7) * (0.35 + 1.1 * n) * lanes;
+  inten *= smoothstep(0.0, 0.06, r - RIN) * smoothstep(0.0, 0.2, ROUT - r);
+  vec3 c = mix(vec3(1.0, 0.28, 0.05), vec3(1.0, 0.8, 0.55), pow(1.0 - t, 2.2));
+  c = mix(c, vec3(1.0, 0.97, 0.92), pow(1.0 - t, 7.0));
+  float doppler = 1.0 + 0.8 * cos(ang);                      // the approaching side burns brighter
+  return c * inten * doppler * 2.4;
+}
+void main(){
+  vec2 p = vUv * 2.0 - 1.0;
+  float rr = length(p), th = atan(p.y, p.x);
+  vec3 col = vec3(0.0);
+  // soft halo
+  col += vec3(1.0, 0.5, 0.2) * exp(-rr * 5.0) * 0.08;
+  // far half of the disk, lensed into arcs above and below the shadow
+  float up = smoothstep(-0.1, 0.7, sin(th)), down = smoothstep(0.1, -0.7, sin(th));
+  float lr = mix(RIN, ROUT, clamp((rr - RS * 1.07) / (RS * 1.7), 0.0, 1.0));
+  col += disk(lr, th) * up * step(RS * 1.07, rr) * (1.0 - smoothstep(RS * 2.6, RS * 2.9, rr));
+  float lr2 = mix(RIN, ROUT, clamp((rr - RS * 1.05) / (RS * 0.45), 0.0, 1.0));
+  col += disk(lr2, th) * down * 0.55 * step(RS * 1.05, rr) * (1.0 - smoothstep(RS * 1.45, RS * 1.55, rr));
+  // far half of the flat disk where it peeks out beside the shadow
+  vec2 dp = vec2(p.x, p.y / COSI);
+  float dr = length(dp), da = atan(dp.y, -dp.x);
+  if (p.y > 0.0 && rr > RS) col += disk(dr, da);
+  // photon ring
+  col += vec3(1.0, 0.85, 0.65) * exp(-pow((rr - RS * 1.03) / (RS * 0.035), 2.0)) * 2.2;
+  // the shadow swallows everything behind it
+  float shadow = 1.0 - smoothstep(RS * 0.97, RS * 1.0, rr);
+  col *= 1.0 - shadow;
+  // near half of the disk crosses in front of the shadow
+  if (p.y <= 0.0) col += disk(dr, da);
+  float edge = 1.0 - smoothstep(0.85, 1.0, rr);
+  gl_FragColor = vec4(col * edge, shadow);
 }
 `;
 
@@ -98,6 +153,22 @@ export class Space {
     this.swarm.frustumCulled = false;
     this.swarm.visible = false;
     this.group.add(this.swarm);
+
+    // singularity companion
+    this.bhU = { uTime: this.starU.uTime };
+    this.bh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+      uniforms: this.bhU, transparent: true, depthWrite: false,
+      vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: BH_FRAG,
+      // premultiplied: the disk adds light, the shadow blots out what is behind
+      blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+    }));
+    this.bh.position.copy(BH_DIR).multiplyScalar(520);
+    this.bh.scale.setScalar(135);
+    this.bh.renderOrder = 1;                       // after the stars, so the shadow hides them
+    this.bh.frustumCulled = false;
+    this.bh.visible = false;
+    this.group.add(this.bh);
   }
 
   configure(dna, sunDir, sun2Dir, hue) {
@@ -106,7 +177,8 @@ export class Space {
     this.nebU.uSeed.value = dna.seedX % 37;
     this.sun.position.copy(sunDir).multiplyScalar(600);
     this.sun2.position.copy(sun2Dir).multiplyScalar(600);
-    this.sun2.visible = !!dna.binary;
+    this.sun2.visible = !!dna.binary && dna.anomaly !== 4;
+    this.bh.visible = dna.anomaly === 4;
     this.swarm.visible = dna.type !== 'gas' && dna.civ >= 0.86;
     this.swarm.position.copy(this.sun.position);
     this.swarm.lookAt(0, 0, 0);
@@ -118,5 +190,6 @@ export class Space {
     this.time += dt;
     this.starU.uTime.value = this.time;
     this.group.position.copy(camera.position);   // background at infinity
+    if (this.bh.visible) this.bh.quaternion.copy(camera.quaternion);
   }
 }

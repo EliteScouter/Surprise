@@ -106,6 +106,23 @@ export const GAS_PALETTES = [
   ['#8ad0a0', '#3a8a6a', '#d0f0d8', '#1a4a3a'], // verdant
 ];
 
+// ------------------------------------------------------------------ anomalies
+// About one name in a million breaks the rules. Decided by its own hash stream so
+// that adding anomalies never changed how any ordinary world looks.
+export const ANOMALY_CHANCE = 1e-6;
+export const ANOMALIES = [
+  null,
+  { id: 'crystal', label: 'Crystal World', line: 'Its entire crust has grown into a single lattice of prismatic crystal that splits starlight into every colour.' },
+  { id: 'shattered', label: 'Shattered World', line: 'Something broke it. The pieces still glow at the seams, and a river of its own rubble circles what is left.' },
+  { id: 'glitch', label: 'Glitch World', line: 'It does not render correctly. Its surface stutters, repeats and tears, as if the universe ran out of memory here.' },
+  { id: 'singularity', label: 'Singularity Companion', line: 'It orbits a black hole. Light from its accretion disk bends around the event horizon and paints its night side copper.' },
+];
+export function anomalyOf(name, salt = '') {
+  const r = rngFrom(slugify(name) + salt + '|anomaly');
+  if (r.next() >= ANOMALY_CHANCE) return 0;
+  return 1 + Math.floor(r.next() * 4);
+}
+
 // ------------------------------------------------------------------ genome
 export function dnaFromName(name, salt = '', forcedType = null) {
   const r = rngFrom(slugify(name) + salt);
@@ -158,6 +175,11 @@ export function dnaFromName(name, salt = '', forcedType = null) {
   if (d.atmosphere > 0.35 && type !== 'barren' && r.chance(0.13)) d.aurora = 1;
   if (r.chance(0.06)) d.binary = 1;
   if (d.civ > 0.72 && r.chance(0.3)) d.megastructure = 1;
+  d.anomaly = anomalyOf(name, salt);
+  // a crystal or shattered world needs solid ground
+  if (d.type === 'gas' && (d.anomaly === 1 || d.anomaly === 2)) {
+    d.type = 'barren'; d.variant = 0; d.craters = 0.3; d.mountains = 0.6; d.atmosphere = 0.2; d.moons = Math.min(d.moons, 2);
+  }
   return d;
 }
 
@@ -200,6 +222,7 @@ export const RARITY = [
   { name: 'Epic', color: '#b878ff', min: 7.3, odds: 95 },
   { name: 'Legendary', color: '#ffb340', min: 10.2, odds: 2100 },
   { name: 'Mythic', color: '#ff4f8a', min: 11.8, odds: 25000 },
+  { name: 'Anomaly', color: '#7df9ff', min: Infinity, odds: 1000000 },
 ];
 
 export function rarityScore(d) {
@@ -218,6 +241,7 @@ export function rarityScore(d) {
 
 export function rarityOf(d) {
   const s = rarityScore(d);
+  if (d.anomaly) return { ...RARITY[RARITY.length - 1], score: s };
   let tier = RARITY[0];
   for (const t of RARITY) if (s >= t.min) tier = t;
   return { ...tier, score: s };
@@ -354,6 +378,7 @@ export function profile(name, dna) {
   if (dna.civ > 0.12) { parts.push(r.pick(LIFE)(civName)); parts.push(civStage(dna).line); }
   else if (habit > 0.35) parts.push(r.pick(MICRO));
   else parts.push(r.pick(DEAD));
+  if (dna.anomaly) parts.push(ANOMALIES[dna.anomaly].line);
   if (dna.megastructure) parts.push(`An artificial ring encircles its equator, a megastructure the ${civName} refuse to explain.`);
   if (dna.binary) parts.push('Two suns rise over its horizon, casting doubled shadows across the land.');
   if (dna.aurora) parts.push('Its poles burn with auroras so bright they can be seen from neighbouring systems.');

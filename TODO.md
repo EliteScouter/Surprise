@@ -146,5 +146,5 @@ Found by attacking the running app, then verified blocked:
 ## Also discussed (not yet scheduled)
 - [x] Domain live: https://cosmonym.app via Cloudflare → NPM (Let's Encrypt) → gate :8089
 - [x] Rarity rebalance: Legendary ~1 in 2,100, Mythic ~1 in 25,000 (stored worlds re-tier at boot)
-- [ ] One-in-a-million anomaly worlds (black hole companion, Dyson swarm, shattered planet, crystal world, glitch world)
+- [x] One-in-a-million anomaly worlds: crystal, shattered (with debris field), glitch, singularity companion (black hole). Own "Anomaly" tier above Mythic
 - [ ] Gift a world: claim a planet for someone and send it as a card
