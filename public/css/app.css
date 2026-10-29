@@ -332,3 +332,11 @@ kbd { font-family: var(--mono); padding: 1px 6px; border-radius: 5px; border: 1p
   .reasons { grid-template-columns: 1fr; }
   #accountBtn span.label { display: none; }
 }
+
+.legal-links { position: absolute; right: 22px; bottom: 64px; display: flex; gap: 16px; font-size: 12px; }
+.legal-links a { color: var(--muted); transition: color .2s; }
+.legal-links a:hover { color: var(--ink); }
+.legal-note { margin: -4px 0 0 !important; font-size: 12px !important; color: var(--muted); text-align: center; }
+.legal-note a { color: var(--ink-2); text-decoration: underline; }
+#authForm[data-mode="reset"] .legal-note, #authForm[data-mode="forgot"] .legal-note { display: none; }
+@media (max-width: 900px) { .legal-links { right: 50%; transform: translateX(50%); bottom: 58px; } }

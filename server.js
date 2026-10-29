@@ -433,6 +433,7 @@ const server = http.createServer(async (req, res) => {
     if (p.startsWith('/vendor/three/build/') || p.startsWith('/vendor/three/examples/jsm/')) return serveFile(res, p.slice('/vendor/three/'.length), THREE_DIR, 'public, max-age=31536000, immutable');
     if (p.startsWith('/vendor/')) return send(res, 404, 'not found');
 
+    if (p === '/privacy' || p === '/terms') return serveFile(res, p.slice(1) + '.html', PUBLIC_DIR, 'no-cache');
     if (p === '/' || p === '/index.html' || p === '/explore' || p === '/account' || /^\/(u\/[a-z0-9-]{1,32}|auth\/(verify|reset))\/?$/.test(p)) return send(res, 200, indexHtml(null), { 'Content-Type': MIME['.html'] });
     if ((m = p.match(/^\/w\/([a-z0-9-]{1,32})\/?$/))) {
       if (isOffensive(m[1]) || isOffensive(url.searchParams.get('n') || '')) { res.writeHead(302, { Location: '/' }); return res.end(); }
