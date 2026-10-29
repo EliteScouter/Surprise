@@ -265,8 +265,22 @@ async function serveFile(res, file, root, cache) {
 
 let indexTemplate = '';
 let importMapHash = '';
+// Fingerprint of the app's JS and CSS. Assets are served under /v/<fingerprint>/
+// and cached forever: a deploy changes the fingerprint, so browsers (and
+// Cloudflare, which may override our cache headers) always fetch the new files.
+function buildId() {
+  const h = crypto.createHash('sha256');
+  for (const dir of ['js', 'css']) {
+    for (const f of fs.readdirSync(path.join(PUBLIC_DIR, dir)).sort()) h.update(f).update(fs.readFileSync(path.join(PUBLIC_DIR, dir, f)));
+  }
+  return h.digest('hex').slice(0, 12);
+}
+let BUILD = buildId();
 function loadTemplate() {
-  indexTemplate = fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8');
+  if (process.env.NODE_ENV !== 'production') BUILD = buildId();
+  indexTemplate = fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8')
+    .replace('href="/css/app.css"', `href="/v/${BUILD}/css/app.css"`)
+    .replace('src="/js/main.js"', `src="/v/${BUILD}/js/main.js"`);
   const map = indexTemplate.match(/<script type="importmap">([\s\S]*?)<\/script>/);
   // browsers hash inline scripts after normalising line endings, so we must too
   importMapHash = map ? crypto.createHash('sha256').update(map[1].replace(/\r\n?/g, '\n')).digest('base64') : '';
@@ -500,6 +514,9 @@ const server = http.createServer(async (req, res) => {
     if (p.startsWith('/vendor/three/build/') || p.startsWith('/vendor/three/examples/jsm/')) return serveFile(res, p.slice('/vendor/three/'.length), THREE_DIR, 'public, max-age=31536000, immutable');
     if (p.startsWith('/vendor/')) return send(res, 404, 'not found');
 
+    if ((m0 = p.match(/^\/v\/[a-f0-9]{12}\/((?:js|css)\/[a-z0-9-]+\.(?:js|css))$/))) {
+      return serveFile(res, m0[1], PUBLIC_DIR, 'public, max-age=31536000, immutable');
+    }
     if ((m0 = p.match(/^\/card\/([a-z0-9-]{1,32})\.jpg$/))) {
       if (!hasCard(m0[1])) return send(res, 404, 'not found');
       return serveFile(res, m0[1] + '.jpg', CARD_DIR, 'public, max-age=3600');
