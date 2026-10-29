@@ -266,8 +266,9 @@ async function runFormingCaptions(dna) {
 function renderDossier(retype) {
   const w = S.world, d = w.dna;
   const pr = profile(w.name, d);
-  const rar = rarityOf(d);
-  const pct = rarityPercentile(d);
+  // rarity belongs to the name itself; forging a world can't make it rarer
+  const rar = rarityOf(w.origin);
+  const pct = rarityPercentile(w.origin);
   const r = $('#dRarity');
   r.style.setProperty('--rc', rar.color);
   r.className = 'rarity ' + rar.name.toLowerCase();
@@ -443,7 +444,7 @@ $('#claimBtn').onclick = async () => {
   if (!w.record) return openClaim();
   if (w.owner && w.dirty) {
     try {
-      const res = await api.send('PUT', '/api/world/' + w.id, { token: S.tokens[w.id], dna: w.dna, hue: worldColorHue(w.dna), rarity: rarityOf(w.dna).name });
+      const res = await api.send('PUT', '/api/world/' + w.id, { token: S.tokens[w.id], dna: w.dna });
       w.record = res.world; w.dirty = false; renderActions(); renderDossier(false);
       toast('✦ Changes saved to the galaxy');
       audio.chime('star');
@@ -473,7 +474,7 @@ $('#claimForm').addEventListener('submit', async e => {
     const discoverer = $('#claimBy').value.trim();
     store.set('discoverer', discoverer);
     const res = await api.send('POST', '/api/world', {
-      name: w.name, discoverer, epitaph: $('#claimMsg').value.trim(), dna: w.dna, hue: worldColorHue(w.dna), rarity: rarityOf(w.dna).name,
+      name: w.name, discoverer, epitaph: $('#claimMsg').value.trim(), dna: w.dna,
     });
     S.tokens[res.world.id] = res.token; store.set('tokens', S.tokens);
     w.record = res.world; w.owner = true; w.dirty = false; w.id = res.world.id;
@@ -514,7 +515,7 @@ function shareUrl() {
 }
 $('#shareBtn').onclick = async () => {
   const w = S.world;
-  const rar = rarityOf(w.dna).name;
+  const rar = rarityOf(w.origin).name;
   const text = `I found ${w.name}, a ${rar} ${TYPE_INFO[w.dna.type].label.toLowerCase()} on COSMONYM. What does your name grow into?`;
   const url = shareUrl();
   if (navigator.share && isMobile) { try { await navigator.share({ title: w.name, text, url }); return; } catch { /* cancelled */ } }
@@ -540,7 +541,7 @@ $('#postcardBtn').onclick = async () => {
   grd.addColorStop(0, 'rgba(4,5,11,0.92)'); grd.addColorStop(0.55, 'rgba(4,5,11,0.55)'); grd.addColorStop(1, 'rgba(4,5,11,0)');
   g.fillStyle = grd; g.fillRect(0, 0, W, H);
   await document.fonts.ready;
-  const rar = rarityOf(d), pr = profile(w.name, d);
+  const rar = rarityOf(w.origin), pr = profile(w.name, d);
   g.fillStyle = '#8fd3ff'; g.font = '500 22px Unbounded'; g.letterSpacing = '8px';
   g.fillText('COSMONYM', 90, 110);
   g.letterSpacing = '0px';

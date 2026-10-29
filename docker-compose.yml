@@ -11,12 +11,33 @@ services:
       NODE_ENV: production
       PORT: "3000"
       DATA_DIR: /data
+      # Set these once the reverse proxy is in front (see TODO.md, Security):
+      # the proxy's IP/CIDR, and the public site origin.
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+      PUBLIC_ORIGINS: ${PUBLIC_ORIGINS:-}
     volumes:
       - worldseed-data:/data
     ports:
       - "8089:3000"
+    # The app only ever writes to /data. Everything else is read-only, no Linux
+    # capabilities, and hard resource ceilings so a bug or flood can't starve the host.
+    user: "1000:1000"
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
+    mem_limit: 768m
+    pids_limit: 128
+    cpus: 2
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     logging:
       driver: json-file
       options:
