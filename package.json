@@ -1,0 +1,17 @@
+{
+  "name": "worldseed",
+  "version": "1.0.0",
+  "description": "Every name grows a world. Type a name, watch a planet form, claim it in a shared living galaxy.",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "three": "0.169.0"
+  },
+  "license": "MIT"
+}

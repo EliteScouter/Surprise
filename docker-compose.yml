@@ -1,0 +1,11 @@
+services:
+  worldseed:
+    build: .
+    container_name: worldseed
+    restart: unless-stopped
+    ports:
+      - "8089:3000"
+    volumes:
+      - worldseed-data:/data
+volumes:
+  worldseed-data:

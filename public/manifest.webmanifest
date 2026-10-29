@@ -1,0 +1,1 @@
+{ "name": "WORLDSEED", "short_name": "WORLDSEED", "description": "Every name holds a world.", "start_url": "/", "display": "standalone", "background_color": "#04050b", "theme_color": "#04050b", "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }] }
