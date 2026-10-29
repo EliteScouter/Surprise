@@ -8,6 +8,7 @@ import { Planet } from './planet.js';
 import { Galaxy } from './galaxy.js';
 import { Space } from './space.js';
 import { Ambience } from './audio.js';
+import { isOffensive } from './filter.js';
 import {
   dnaFromName, slugify, profile, rarityOf, rarityPercentile, formatPop, worldColorHue, TYPE_INFO, TYPES,
   PALETTES, GAS_PALETTES, randomName,
@@ -142,6 +143,10 @@ async function route() {
   const m = p.match(/^\/w\/([a-z0-9-]{1,32})/);
   if (m) {
     const name = new URLSearchParams(location.search).get('n');
+    if (isOffensive(m[1]) || isOffensive(name || '')) {
+      toast('That name isn’t available in the cosmos.');
+      return navigate('/', true);
+    }
     return openWorld(m[1], name, { fly: S.mode === 'home' || S.mode === 'explore' });
   }
   const target = p === '/explore' ? 'explore' : 'home';
@@ -472,6 +477,7 @@ $('#claimForm').addEventListener('submit', async e => {
   btn.disabled = true;
   try {
     const discoverer = $('#claimBy').value.trim();
+    if (isOffensive(discoverer) || isOffensive($('#claimMsg').value)) throw new Error('Let’s keep the cosmos friendly.');
     store.set('discoverer', discoverer);
     const res = await api.send('POST', '/api/world', {
       name: w.name, discoverer, epitaph: $('#claimMsg').value.trim(), dna: w.dna,
@@ -600,6 +606,11 @@ function updatePreview() {
   const name = seedInput.value.trim();
   const id = slugify(name);
   const el = $('#preview');
+  if (isOffensive(name)) {
+    galaxy.showReticle(null);
+    el.innerHTML = '<span class="chip">That name isn’t available in the cosmos</span>';
+    return;
+  }
   galaxy.showReticle(id.length >= 2 ? id : null);
   if (id.length < 2) { el.innerHTML = ''; return; }
   const claimed = galaxy.index.has(id) ? galaxy.worlds[galaxy.index.get(id)] : null;
@@ -614,6 +625,7 @@ $('#seedForm').addEventListener('submit', e => {
   e.preventDefault();
   const name = seedInput.value.trim().replace(/\s+/g, ' ');
   if (slugify(name).length < 2) { seedInput.focus(); toast('Type a name with at least two letters'); return; }
+  if (isOffensive(name)) { seedInput.focus(); toast('That name isn’t available in the cosmos. Try another!'); return; }
   audio.ensure();
   S.cameFromExplore = false;
   navigate('/w/' + slugify(name) + '?n=' + encodeURIComponent(name));
@@ -648,7 +660,9 @@ function renderCounts() {
 // ------------------------------------------------------------------ explore
 let listSort = 'new';
 async function loadList() {
-  const q = $('#searchInput').value.trim();
+  const typed = $('#searchInput').value.trim();
+  const q = isOffensive(typed) ? '' : typed;
+  if (typed && !q) { $('#worldList').innerHTML = '<li class="empty">Nothing found.</li>'; return; }
   try {
     const { worlds } = await api.get(`/api/worlds?sort=${listSort}&limit=80${q ? '&q=' + encodeURIComponent(q) : ''}`);
     const ul = $('#worldList');

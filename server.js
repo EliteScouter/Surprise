@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { dnaFromName, rarityOf, worldColorHue } from './public/js/dna.js';
+import { isOffensive } from './public/js/filter.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
@@ -78,11 +79,7 @@ export function slugify(name) {
     .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32);
 }
 
-const BLOCK = ['nigger', 'nigga', 'faggot', 'retard', 'rape', 'nazi', 'hitler', 'kike', 'chink', 'spic', 'tranny', 'cunt', 'pedo', 'porn', 'cock', 'pussy', 'whore', 'slut', 'fuck', 'shit'];
-function clean(str) {
-  const flat = String(str).toLowerCase().replace(/[^a-z]/g, '').replace(/0/g, 'o').replace(/1/g, 'i').replace(/3/g, 'e');
-  return !BLOCK.some(w => flat.includes(w));
-}
+const clean = str => !isOffensive(str);
 // Strips control characters, angle brackets, and invisible/bidirectional characters
 // that can disguise one name as another (right-to-left overrides, zero-width joiners).
 const sanitizeText = (s, max) => String(s ?? '').normalize('NFC')
@@ -324,7 +321,9 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/worlds' && req.method === 'GET') {
       const sort = url.searchParams.get('sort') || 'new';
       const limit = Math.max(1, Math.min(200, Math.floor(Number(url.searchParams.get('limit'))) || 40));
-      const q = slugify(url.searchParams.get('q') || '');
+      const rawQ = url.searchParams.get('q') || '';
+      const q = isOffensive(rawQ) ? '' : slugify(rawQ);
+      if (rawQ && !q) return send(res, 200, { worlds: [] });
       let list = db.order.map(id => db.worlds[id]);
       if (q) list = list.filter(w => w.id.includes(q) || slugify(w.discoverer).includes(q));
       if (sort === 'top') list = [...list].sort((a, b) => b.stars - a.stars || b.views - a.views);
@@ -380,7 +379,8 @@ const server = http.createServer(async (req, res) => {
       if (!NAME_OK.test(name)) return send(res, 400, { error: 'Names can use letters, numbers, spaces and simple punctuation.' });
       const discoverer = sanitizeText(body.discoverer, 24) || 'Anonymous';
       const epitaph = sanitizeText(body.epitaph, 140);
-      if (!clean(name) || !clean(discoverer) || !clean(epitaph)) return send(res, 400, { error: 'Let’s keep the cosmos friendly.' });
+      if (!clean(name)) return send(res, 400, { error: 'That name isn’t available in the cosmos.' });
+      if (!clean(discoverer) || !clean(epitaph)) return send(res, 400, { error: 'Let’s keep the cosmos friendly.' });
       if (db.worlds[id]) return send(res, 409, { error: 'Someone already claimed this world.', world: publicWorld(db.worlds[id], true) });
       if (db.order.length >= MAX_WORLDS) return send(res, 503, { error: 'The galaxy is full.' });
       const dna = sanitizeDna(body.dna, name);
@@ -418,7 +418,10 @@ const server = http.createServer(async (req, res) => {
     if (p.startsWith('/vendor/')) return send(res, 404, 'not found');
 
     if (p === '/' || p === '/index.html' || p === '/explore') return send(res, 200, indexHtml(null), { 'Content-Type': MIME['.html'] });
-    if ((m = p.match(/^\/w\/([a-z0-9-]{1,32})\/?$/))) return send(res, 200, indexHtml(db.worlds[m[1]]), { 'Content-Type': MIME['.html'] });
+    if ((m = p.match(/^\/w\/([a-z0-9-]{1,32})\/?$/))) {
+      if (isOffensive(m[1]) || isOffensive(url.searchParams.get('n') || '')) { res.writeHead(302, { Location: '/' }); return res.end(); }
+      return send(res, 200, indexHtml(db.worlds[m[1]]), { 'Content-Type': MIME['.html'] });
+    }
 
     return serveFile(res, p, PUBLIC_DIR, 'no-cache');
   } catch (e) {

@@ -17,7 +17,8 @@ Listed in build order. Each step depends on the ones above it.
 - [ ] Limits per account as well as per IP (claims, stars, edits, logins, sign-ups)
 - [ ] Store counters in the DB so they survive restarts
 - [ ] Brute-force protection on login and 2FA (lockout + backoff)
-- [ ] Rebuild the bad-word filter: proper number/lookalike-character handling, a much larger list, allow innocent words (Hancock, Grape, Scunthorpe)
+- [x] Rebuilt the offensive-name filter (`public/js/filter.js`, tests in `npm test`): handles number/symbol swaps, lookalike letters, spacing, stretched letters; allows Scunthorpe, Grape, Hancock, etc. Applied to growing, shared links, search, claims, discoverer names and messages
+- [ ] Keep extending the word list from reports and the admin panel
 - [ ] "Report this world" button for visitors
 
 ## 3. Accounts and profiles
