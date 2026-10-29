@@ -102,7 +102,7 @@ Found by attacking the running app, then verified blocked:
 - [ ] Refresh the Cloudflare ranges in `gate/default.conf.template` if https://www.cloudflare.com/ips/ ever changes (rare)
 - [x] Gate container (nginx) is the only exposed piece; it believes `CF-Connecting-IP` only from NPM (10.0.101.1) and overwrites it for everyone else
 - [x] App trusts forwarded IPs only from the gate's private subnet; `PUBLIC_ORIGINS` defaults to https://cosmonym.app
-- [ ] Flip the gate to NPM-only (`GATE_ALLOW=10.0.101.1` in the stack env) once cosmonym.app is live in NPM
+- [x] Gate locked to NPM only (`GATE_ALLOW=10.0.101.1` in the stack env); direct LAN access to :8089 now returns 403
 - [x] App container has no network route out at all (internal-only Docker network); verified it can't reach Portainer, the Docker agent, NPM, the LAN or the internet
 - [ ] When MariaDB arrives: a relay that allows exactly one destination (the DB on 3306)
 - [x] Dedicated Docker networks for Cosmonym, not shared with other stacks
@@ -119,7 +119,7 @@ Found by attacking the running app, then verified blocked:
 - [ ] Centralised logs with alerts on spikes in 4xx/5xx, 429s and admin logins
 
 ### 3. Standards and encryption
-- [ ] Cloudflare SSL mode **Full (strict)**, minimum TLS 1.2, TLS 1.3 on, HSTS + preload (`.app` already enforces HTTPS)
+- [ ] Cloudflare: minimum TLS version is currently 1.0, raise it to **1.2**; turn on **Always Use HTTPS** (plain http:// currently serves the page); SSL mode **Full (strict)**; TLS 1.3 on
 - [ ] Origin certificate: Let's Encrypt on the reverse proxy, auto-renew, OCSP stapling
 - [ ] Passwords hashed with Argon2id (or scrypt), per-user salt, never logged
 - [ ] Sessions: random 256-bit IDs in `__Host-` cookies, `Secure`, `HttpOnly`, `SameSite=Lax`, rotated on login, server-side revocation
@@ -134,7 +134,7 @@ Found by attacking the running app, then verified blocked:
 - [ ] External penetration test (or a paid bug bounty) before a big public launch
 
 ## Also discussed (not yet scheduled)
-- [ ] Domain: buy cosmonym.app, route Cloudflare proxy → your reverse proxy (Let's Encrypt) → host :8089, update share links to the new domain
+- [x] Domain live: https://cosmonym.app via Cloudflare → NPM (Let's Encrypt) → gate :8089
 - [ ] Rarity rebalance: Legendary ~1 in 2,000, Mythic ~1 in 25,000
 - [ ] One-in-a-million anomaly worlds (black hole companion, Dyson swarm, shattered planet, crystal world, glitch world)
 - [ ] Gift a world: claim a planet for someone and send it as a card
