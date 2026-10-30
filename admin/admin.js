@@ -99,6 +99,29 @@
     bars($('#claimsChart'), s.claimsByDay); bars($('#usersChart'), s.usersByDay);
     const kv = obj => Object.entries(obj).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<span>${esc(k)}</span><span>${v}</span>`).join('') || '<span class="muted">No data yet</span>';
     $('#rarityList').innerHTML = kv(s.rarity); $('#typeList').innerHTML = kv(s.types);
+
+    // growth: the server keeps only per-day totals keyed by UTC date
+    const { days } = await api('/metrics');
+    const dayKey = i => new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+    const sum = (k, n) => { let t = 0; for (let i = 0; i < n; i++) t += days[dayKey(i)]?.[k] || 0; return t; };
+    const pct = (a, b) => b ? `${Math.round((a / b) * 100)}%` : '—';
+    const gcard = (k, v, d) => `<div class="card stat"><div class="k">${k}</div><div class="v">${typeof v === 'number' ? v.toLocaleString() : esc(v)}</div>${d ? `<div class="d">${esc(d)}</div>` : ''}</div>`;
+    $('#growthCards').innerHTML =
+      gcard('Visitors today', sum('visitors', 1), `${sum('visitors', 7).toLocaleString()} this week`)
+      + gcard('Worlds grown today', sum('grow', 1), `${sum('grow', 7).toLocaleString()} this week`)
+      + gcard('Shares today', sum('share', 1), `${sum('share', 7).toLocaleString()} this week`)
+      + gcard('Grown → claimed', pct(sum('claim', 7), sum('grow', 7)), 'last 7 days')
+      + gcard('Arrived on a world → grew their own', pct(sum('cta', 7), sum('land:world', 7)), 'last 7 days');
+    const series = k => Array.from({ length: 14 }, (_, i) => ({ day: Date.parse(dayKey(13 - i)), n: days[dayKey(13 - i)]?.[k] || 0 }));
+    bars($('#visitorsChart'), series('visitors')); bars($('#growsChart'), series('grow'));
+    const byPrefix = prefix => {
+      const out = {};
+      for (let i = 0; i < 14; i++) for (const [k, n] of Object.entries(days[dayKey(i)] || {})) if (k.startsWith(prefix)) out[k.slice(prefix.length)] = (out[k.slice(prefix.length)] || 0) + n;
+      return out;
+    };
+    const sources = byPrefix('ref:');
+    for (const [k, n] of Object.entries(byPrefix('src:'))) sources['shared link: ' + k] = n;
+    $('#sourceList').innerHTML = kv(sources); $('#shareList').innerHTML = kv(byPrefix('share:'));
   };
 
   // ---------------------------------------------------------------- reports

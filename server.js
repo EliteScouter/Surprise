@@ -7,7 +7,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import net from 'node:net';
 import { fileURLToPath } from 'node:url';
-import { dnaFromName, rarityOf, worldColorHue } from './public/js/dna.js';
+import { dnaFromName, rarityOf, worldColorHue, RARITY } from './public/js/dna.js';
 import { isOffensive } from './public/js/filter.js';
 import { createStore, hasLegacyFile, FileStore, DuplicateError, UnavailableError } from './lib/store.js';
 import { initKeys } from './lib/crypto.js';
@@ -15,6 +15,7 @@ import { mailEnabled } from './lib/mailer.js';
 import { Accounts } from './lib/accounts.js';
 import { createAuthRoutes } from './lib/auth-routes.js';
 import { createAdminRoutes } from './lib/admin-routes.js';
+import { createMetrics, CLIENT_EVENTS, SHARE_VIA, cleanHost } from './lib/metrics.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
@@ -35,11 +36,12 @@ const MAX_STREAMS = 5000;
 // ---------------------------------------------------------------- storage
 const store = createStore(process.env, DATA_DIR);
 initKeys(DATA_DIR);
+const metrics = createMetrics({ store, dataDir: DATA_DIR });
 // Accounts, profiles, reports and the admin panel need the database.
 const accounts = store.kind === 'mariadb' ? new Accounts(store) : null;
 if (accounts) setInterval(() => accounts.purgeExpired().catch(() => {}), 3600000).unref();
 for (const sig of ['SIGINT', 'SIGTERM']) {
-  process.on(sig, async () => { await store.close().catch(() => {}); process.exit(0); });
+  process.on(sig, async () => { await metrics.flush().catch(() => {}); await store.close().catch(() => {}); process.exit(0); });
 }
 
 // rarity always comes from the name, never from storage or clients
@@ -307,7 +309,9 @@ function indexHtml(world) {
   if (!world) return indexTemplate;
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const rar = rarityFor(world.name);
-  const title = `${esc(world.name)}, ${/^[aeiou]/i.test(rar) ? 'an' : 'a'} ${esc(rar)} world on COSMONYM`;
+  const tier = RARITY.find(r => r.name === rar);
+  const title = rar === 'Anomaly' ? `${esc(world.name)}, a one-in-a-million world on COSMONYM`
+    : `${esc(world.name)}, ${/^[aeiou]/i.test(rar) ? 'an' : 'a'} ${esc(rar)} world${tier?.odds >= 95 ? ` (1 in ${tier.odds.toLocaleString('en-US')})` : ''} on COSMONYM`;
   const desc = `Discovered by ${esc(world.discoverer)}. ${world.epitaph ? '“' + esc(world.epitaph) + '” ' : ''}Type any name and grow your own world.`;
   const url = `${PUBLIC_URL}/w/${world.id}`;
   const image = hasCard(world.id) ? `<meta property="og:image" content="${PUBLIC_URL}/card/${world.id}.jpg?v=${world.updatedAt || ''}" />
@@ -322,7 +326,7 @@ function indexHtml(world) {
 }
 
 const invalidateMap = () => { mapCache = null; lbCache = null; };
-const routeCtx = { accounts, store, send, readBody, sanitizeText, isOffensive, limited, broadcast, invalidateMap, removeCard, publicUrl: PUBLIC_URL, adminDir: ADMIN_DIR };
+const routeCtx = { accounts, store, metrics, send, readBody, sanitizeText, isOffensive, limited, broadcast, invalidateMap, removeCard, publicUrl: PUBLIC_URL, adminDir: ADMIN_DIR };
 const auth = accounts ? createAuthRoutes({ ...routeCtx, publicWorld }) : null;
 const admin = accounts ? createAdminRoutes(routeCtx) : null;
 
@@ -363,6 +367,23 @@ const server = http.createServer(async (req, res) => {
         if (n <= 0) streamsByIp.delete(ip); else streamsByIp.set(ip, n);
       });
       return;
+    }
+
+    if (p === '/api/event' && req.method === 'POST') {
+      // anonymous counters; anything unexpected is quietly ignored
+      if (limited(ip, 'event', 120, 600000)) return send(res, 204, '');
+      const b = await readBody(req, 1024);
+      const e = String(b.e || '');
+      if (!CLIENT_EVENTS.has(e)) return send(res, 204, '');
+      metrics.count(e);
+      if (e === 'visit') {
+        metrics.visitor(rctx.ipHash);
+        metrics.count('ref:' + (cleanHost(b.ref) || 'direct'));
+        if (/^[a-z0-9_-]{1,24}$/i.test(b.src || '')) metrics.count('src:' + b.src.toLowerCase());
+        if (['home', 'world', 'other'].includes(b.land)) metrics.count('land:' + b.land);
+      }
+      if (e === 'share' && SHARE_VIA.has(b.via)) metrics.count('share:' + b.via);
+      return send(res, 204, '');
     }
 
     if (p === '/api/stats') {
@@ -492,6 +513,7 @@ const server = http.createServer(async (req, res) => {
         throw e;
       }
       mapCache = null;
+      metrics.count('claim');
       broadcast('world', publicWorld(saved));
       // with accounts, ownership lives on the account; the token is only for file mode
       return send(res, 201, me ? { world: publicWorld(saved, true) } : { world: publicWorld(saved, true), token });

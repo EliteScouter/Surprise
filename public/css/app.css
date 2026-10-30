@@ -256,7 +256,7 @@ kbd { font-family: var(--mono); padding: 1px 6px; border-radius: 5px; border: 1p
   .actionbar { bottom: 14px; gap: 0; padding: 5px; overflow-x: auto; scrollbar-width: none; justify-content: flex-start; }
   .act { padding: 10px 11px; }
   .act span:not(#starCount) { display: none; }
-  .act.claim span { display: inline; }
+  #actionbar #claimBtn span { display: inline; }   /* beats the icon-only rule above */
   .act.claim { padding: 10px 16px; }
   .forming { transform: translate(-50%, -38vh); }
 }
@@ -428,3 +428,22 @@ kbd { font-family: var(--mono); padding: 1px 6px; border-radius: 5px; border: 1p
 #leaders .glass, #profile .glass { background: rgba(9, 11, 24, 0.78); }
 #leaders .lb-head h1, #leaders .lb-head p { text-shadow: 0 0 2px rgba(4, 5, 11, 0.9), 0 2px 14px rgba(4, 5, 11, 0.9); }
 #leaders .lb-head h1 em { text-shadow: none; filter: drop-shadow(0 2px 10px rgba(4, 5, 11, 0.8)); }
+
+/* ---------------------------------------------------------------- nudges */
+.nudge { position: absolute; z-index: 6; left: 50%; bottom: 96px; transform: translate(-50%, 12px); display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 20px; border-radius: 999px; font-size: 14px; color: var(--ink); opacity: 0; visibility: hidden; transition: .45s var(--ease); max-width: calc(100vw - 32px); background: rgba(9, 11, 24, 0.86); }
+.nudge.on { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
+.nudge > span { white-space: nowrap; }
+.nudge-x { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; padding: 6px 8px; border-radius: 50%; }
+.nudge-x:hover { color: var(--ink); }
+.nudge:has(.yours) { border-radius: 22px; padding: 14px 10px 14px 18px; align-items: flex-start; }
+.nudge .yours { display: flex; flex-direction: column; gap: 8px; }
+.nudge .yours label { white-space: nowrap; }
+.nudge .yours em { font-style: normal; color: var(--accent); }
+.yours-row { display: flex; gap: 6px; }
+.yours-row .field { width: 180px; padding: 8px 14px; border-radius: 999px; }
+@media (max-width: 720px) {
+  .nudge { top: 74px; bottom: auto; transform: translate(-50%, -12px); width: calc(100vw - 24px); justify-content: space-between; border-radius: 22px; padding: 10px 8px 10px 16px; }
+  .nudge > span { white-space: normal; }
+  .nudge .yours { flex: 1; }
+  .yours-row .field { flex: 1; width: auto; }
+}

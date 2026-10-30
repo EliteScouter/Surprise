@@ -43,6 +43,7 @@ nav b:empty { display: none; }
 .bars { display: flex; align-items: flex-end; gap: 4px; height: 120px; }
 .bars div { flex: 1; background: linear-gradient(to top, #3a6db0, var(--accent)); border-radius: 4px 4px 0 0; min-height: 2px; position: relative; }
 .bars div span { position: absolute; top: -18px; left: 50%; transform: translateX(-50%); font-size: 10px; color: var(--muted); }
+.section { font-size: 15px; margin: 28px 0 12px; font-weight: 600; } .section span { font-weight: 400; margin-left: 8px; }
 .kv { display: grid; grid-template-columns: 1fr auto; gap: 6px 16px; }
 .kv span:nth-child(even) { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink2); }
 

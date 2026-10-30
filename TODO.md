@@ -67,6 +67,11 @@ Listed in build order. Each step depends on the ones above it.
 - [x] Per-world preview image (1200x630 JPEG rendered by the owner's browser, validated server-side) in og:image / twitter:image
 - [x] Download postcard from the same dialog
 - [x] Pre-written share text that includes the world's rarity
+- [x] Share text names the odds for Epic and up ("about 1 in 2,100 names"); link previews show them too
+- [x] "Share it" nudge after revealing a Rare-or-better world, and after claiming
+- [x] Visitors who land on someone else's world get a "What does your name grow into?" box
+- [x] Shared links carry the channel (`?s=whatsapp`), stripped from the address bar on arrival
+- [x] Private usage counts (`lib/metrics.js`): per-day totals only, no IPs or cookies; Growth section in the admin overview
 
 ## Security
 

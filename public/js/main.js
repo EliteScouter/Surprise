@@ -87,6 +87,7 @@ const S = {
 
 function setMode(mode) {
   S.mode = mode;
+  if (mode !== 'world') hideNudge();
   $$('.screen').forEach(el => el.classList.toggle('active', el.id === mode));
   const inGalaxy = mode !== 'world';
   renderPass.scene = inGalaxy ? galaxy.scene : planetScene;
@@ -127,6 +128,22 @@ const api = {
   },
 };
 
+// anonymous counters: the server keeps only daily totals, nothing per person
+function track(e, extra = {}) {
+  fetch('/api/event', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ e, ...extra }) }).catch(() => {});
+}
+function trackVisit() {
+  const q = new URLSearchParams(location.search);
+  let ref = '';
+  try { const h = new URL(document.referrer).hostname; if (h !== location.hostname) ref = h; } catch { /* no referrer */ }
+  const src = q.get('s') || q.get('ref') || q.get('utm_source') || '';
+  const land = location.pathname.startsWith('/w/') ? 'world' : location.pathname === '/' ? 'home' : 'other';
+  track('visit', { ref, src, land });
+  // tidy the address bar so the tag isn't passed on if this link is shared again
+  const tags = ['s', 'ref', 'utm_source', 'utm_medium', 'utm_campaign'];
+  if (tags.some(k => q.has(k))) { tags.forEach(k => q.delete(k)); history.replaceState({}, '', location.pathname + (q.toString() ? '?' + q : '')); }
+}
+
 // ------------------------------------------------------------------ routing
 function navigate(path, replace = false) {
   if (location.pathname + location.search === path) return route();
@@ -148,7 +165,7 @@ async function route() {
       toast('That name isn’t available in the cosmos.');
       return navigate('/', true);
     }
-    return openWorld(m[1], name, { fly: S.mode === 'home' || S.mode === 'explore' });
+    return openWorld(m[1], name, { fly: S.mode === 'home' || S.mode === 'explore', landing: S.mode === 'boot' });
   }
   const u = p.match(/^\/u\/([a-z0-9-]{1,32})/);
   if (u) return showProfile(u[1]);
@@ -211,8 +228,9 @@ async function resolveWorld(id, nameHint) {
   return { id, name, dna, origin, record, owner: ownsRecord(record), dirty: false };
 }
 
-async function openWorld(id, nameHint, { fly = false } = {}) {
+async function openWorld(id, nameHint, { fly = false, landing = false } = {}) {
   const worldPromise = resolveWorld(id, nameHint);
+  hideNudge();
   if (fly && S.mode !== 'world') {
     // swoop into the galaxy toward this name's star
     galaxyControls.enabled = false;
@@ -230,7 +248,9 @@ async function openWorld(id, nameHint, { fly = false } = {}) {
     await sleep(380);
   }
   const w = await worldPromise;
+  w.landing = landing;
   S.world = w;
+  track(w.record ? 'view' : 'grow');
   galaxy.showReticle(null);
   setMode('world');
   hideForge();
@@ -274,7 +294,49 @@ async function runFormingCaptions(dna) {
   el.classList.remove('on');
   $('#dossier').style.opacity = ''; $('#actionbar').style.opacity = '';
   typeLore();
+  afterReveal();
 }
+
+// ------------------------------------------------------------------ nudges
+// Right after a reveal: someone who arrived on another person's world is asked
+// what their own name grows into, and anyone who finds a rare world is nudged to share it.
+function afterReveal() {
+  const w = S.world;
+  if (!w) return;
+  if (w.landing && !w.owner) return showYours();
+  if (w.record && !w.owner) return;
+  const rar = rarityOf(w.origin);
+  if (RARITY.findIndex(r => r.name === rar.name) < 2) return;     // Rare and up
+  const msg = rar.name === 'Anomaly' ? '✦ <b>One in a million.</b> Nobody will believe this.' : `✦ <b style="color:${rar.color}">${rar.name}!</b> About 1 in ${rar.odds.toLocaleString()} names.`;
+  setTimeout(() => { if (S.world === w) showShareNudge(msg); }, 1200);
+}
+function showShareNudge(msg) { showNudge(`<span>${msg}</span><button class="btn primary small" data-nudge-share>Share it</button>`, 14000); }
+function showYours() {
+  showNudge(`<form class="yours"><label for="yoursInput">What does <em>your</em> name grow into?</label><div class="yours-row"><input class="field" id="yoursInput" maxlength="24" placeholder="Type any name" spellcheck="false" autocomplete="off" /><button class="btn primary small">Grow</button></div></form>`);
+}
+function showNudge(html, ms = 0) {
+  const n = $('#nudge');
+  n.innerHTML = html + '<button class="nudge-x" type="button" aria-label="Dismiss">✕</button>';
+  n.classList.add('on');
+  clearTimeout(showNudge.t);
+  if (ms) showNudge.t = setTimeout(hideNudge, ms);
+}
+function hideNudge() { $('#nudge').classList.remove('on'); clearTimeout(showNudge.t); }
+$('#nudge').addEventListener('click', e => {
+  if (e.target.closest('.nudge-x')) return hideNudge();
+  if (e.target.closest('[data-nudge-share]')) { track('nudge-share'); hideNudge(); $('#shareBtn').click(); }
+});
+$('#nudge').addEventListener('submit', e => {
+  e.preventDefault();
+  const name = $('#yoursInput').value.trim().replace(/\s+/g, ' ');
+  if (slugify(name).length < 2) { $('#yoursInput').focus(); return toast('Type a name with at least two letters'); }
+  if (isOffensive(name)) { $('#yoursInput').focus(); return toast('That name isn’t available in the cosmos. Try another!'); }
+  track('cta');
+  hideNudge();
+  audio.ensure();
+  S.cameFromExplore = false;
+  navigate('/w/' + slugify(name) + '?n=' + encodeURIComponent(name));
+});
 
 // ------------------------------------------------------------------ dossier
 function renderDossier(retype) {
@@ -513,6 +575,7 @@ $('#claimForm').addEventListener('submit', async e => {
     audio.chime('claim');
     planet.pulse();
     toast(`✦ <b>${esc(w.name)}</b> is yours. It now shines in the galaxy for everyone.`, 4800);
+    setTimeout(() => { if (S.world === w) showShareNudge('✦ It’s yours. Show someone?'); }, 2000);
     setTimeout(uploadCard, 1800);
   } catch (err) {
     if (err.status === 409 && err.body?.world) {
@@ -540,9 +603,13 @@ $('#starBtn').onclick = async () => {
   } catch (e) { toast(esc(e.message)); }
 };
 
-function shareUrl() {
+// `via` tags the link with the channel it was shared on, so we can count what brings people back
+function shareUrl(via) {
   const w = S.world;
-  return location.origin + '/w/' + w.id + (w.record ? '' : '?n=' + encodeURIComponent(w.name));
+  const q = new URLSearchParams();
+  if (!w.record) q.set('n', w.name);
+  if (via) q.set('s', via);
+  return location.origin + '/w/' + w.id + (q.toString() ? '?' + q : '');
 }
 const SHARE_TARGETS = [
   ['x', 'X', (u, t) => `https://x.com/intent/post?text=${t}&url=${u}`],
@@ -569,19 +636,24 @@ const SHARE_ICON = {
 
 function shareText() {
   const w = S.world;
-  const rar = rarityOf(w.origin).name;
-  return w.record && w.owner
-    ? `I discovered ${w.name}, ${/^[AEIOU]/.test(rar) ? 'an' : 'a'} ${rar} ${TYPE_INFO[w.dna.type].label.toLowerCase()} on COSMONYM. What does your name grow into?`
-    : `I found ${w.name}, ${/^[AEIOU]/.test(rar) ? 'an' : 'a'} ${rar} ${TYPE_INFO[w.dna.type].label.toLowerCase()} on COSMONYM. What does your name grow into?`;
+  const rar = rarityOf(w.origin), anom = ANOMALIES[w.origin.anomaly || 0];
+  const an = s => (/^[aeiou]/i.test(s) ? 'an ' : 'a ') + s;
+  const kind = TYPE_INFO[w.dna.type].label.toLowerCase();
+  const what = anom ? (anom.id === 'singularity' ? 'a one-in-a-million world with a black hole for a neighbour' : `a one-in-a-million ${anom.label.toLowerCase()}`)
+    : rar.name === 'Common' ? an(kind)
+    : rar.odds >= 95 ? `${an(rar.name + ' ' + kind)}, about 1 in ${rar.odds.toLocaleString()} names`
+    : an(rar.name + ' ' + kind);
+  return `I ${w.record && w.owner ? 'discovered' : 'found'} ${w.name} on COSMONYM: ${what}. What does your name grow into?`;
 }
 
 $('#shareBtn').onclick = async () => {
   const w = S.world;
-  const url = shareUrl(), text = shareText();
-  const eu = encodeURIComponent(url), et = encodeURIComponent(text), etitle = encodeURIComponent(`${w.name} · COSMONYM`);
+  const text = shareText();
+  const et = encodeURIComponent(text), etitle = encodeURIComponent(`${w.name} · COSMONYM`);
   $('#shareTargets').innerHTML = SHARE_TARGETS.map(([id, label, fn]) =>
-    `<a class="share-btn s-${id}" href="${esc(fn(eu, et, etitle))}" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" fill="currentColor">${SHARE_ICON[id]}</svg><span>${label}</span></a>`).join('');
-  $('#shareUrl').value = url;
+    `<a class="share-btn s-${id}" data-via="${id}" href="${esc(fn(encodeURIComponent(shareUrl(id)), et, etitle))}" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" fill="currentColor">${SHARE_ICON[id]}</svg><span>${label}</span></a>`).join('');
+  $('#shareUrl').value = shareUrl('link');
+  track('share-open');
   $('#shareNative').classList.toggle('hidden', !navigator.share);
   $('#sharePreview').classList.add('loading');
   $('#shareModal').classList.add('open');
@@ -589,12 +661,16 @@ $('#shareBtn').onclick = async () => {
   $('#sharePreview').src = card.toDataURL('image/png');
   $('#sharePreview').classList.remove('loading');
 };
+$('#shareTargets').addEventListener('click', e => { const a = e.target.closest('[data-via]'); if (a) track('share', { via: a.dataset.via }); });
 $('#shareCopy').onclick = async () => {
-  try { await navigator.clipboard.writeText(`${shareText()} ${shareUrl()}`); toast('✦ Link copied. Send it to someone!'); }
+  track('share', { via: 'copy' });
+  try { await navigator.clipboard.writeText(`${shareText()} ${shareUrl('link')}`); toast('✦ Link copied. Send it to someone!'); }
   catch { $('#shareUrl').select(); }
 };
-$('#shareNative').onclick = async () => { try { await navigator.share({ title: S.world.name, text: shareText(), url: shareUrl() }); } catch { /* cancelled */ } };
-$('#shareDownload').onclick = () => $('#postcardBtn').click();
+$('#shareNative').onclick = async () => {
+  try { await navigator.share({ title: S.world.name, text: shareText(), url: shareUrl('app') }); track('share', { via: 'native' }); } catch { /* cancelled */ }
+};
+$('#shareDownload').onclick = () => { track('share', { via: 'download' }); $('#postcardBtn').click(); };
 
 // ------------------------------------------------------------------ postcard
 function captureFrame() { return new Promise(res => { S.capture = res; }); }
@@ -1234,6 +1310,7 @@ async function boot() {
   renderer.compile(galaxy.scene, galaxyCam);
   homeCameraPos(0, galaxyCam.position); galaxyCam.lookAt(0, -10, 0);
   requestAnimationFrame(frame);
+  trackVisit();
   await route();
   if (S.mode === 'boot') enterGalaxyMode('home');
   setTimeout(() => document.body.classList.remove('boot'), 250);
