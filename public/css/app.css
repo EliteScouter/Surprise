@@ -98,7 +98,6 @@ body.photo .ui, body.photo .screen.active, body.photo .hover-label { opacity: 0 
 .seed-input input:not(:placeholder-shown) + .typer, .seed-input.has-value .typer { display: none; }
 .preview { min-height: 34px; margin-top: 14px; display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; font-family: var(--mono); font-size: 12px; transition: opacity .3s; }
 .preview .chip { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: rgba(10, 12, 26, 0.55); color: var(--ink-2); backdrop-filter: blur(10px); animation: pop .35s var(--ease); }
-.preview .chip.r { color: var(--rc); border-color: color-mix(in srgb, var(--rc) 45%, transparent); box-shadow: 0 0 20px color-mix(in srgb, var(--rc) 25%, transparent); }
 .preview .chip.claimed { color: var(--warm); }
 @keyframes pop { from { opacity: 0; transform: translateY(4px) scale(.96); } }
 .hero-actions .btn { background: rgba(8, 10, 24, 0.6); backdrop-filter: blur(10px); color: var(--ink); }

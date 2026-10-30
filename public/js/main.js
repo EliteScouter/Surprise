@@ -702,10 +702,10 @@ function updatePreview() {
   const claimed = galaxy.index.has(id) ? galaxy.worlds[galaxy.index.get(id)] : null;
   const d = dnaFromName(name);
   const type = claimed ? claimed.type : d.type;
-  const rar = rarityOf(d);
+  // rarity stays a surprise until the world is grown
   el.innerHTML = claimed
     ? `<span class="chip">${TYPE_INFO[type].glyph} ${TYPE_INFO[type].label}</span><span class="chip claimed">★ Already claimed, visit it</span>`
-    : `<span class="chip">${TYPE_INFO[type].glyph} ${TYPE_INFO[type].label}</span><span class="chip r" style="--rc:${rar.color}">✦ ${rar.name}</span><span class="chip">Unclaimed</span>`;
+    : `<span class="chip">${TYPE_INFO[type].glyph} ${TYPE_INFO[type].label}</span><span class="chip">Unclaimed</span>`;
 }
 $('#seedForm').addEventListener('submit', e => {
   e.preventDefault();
