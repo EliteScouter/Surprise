@@ -1,4 +1,4 @@
-FROM nginxinc/nginx-unprivileged:1.27-alpine
+FROM nginxinc/nginx-unprivileged:1.31-alpine
 USER root
 RUN apk upgrade --no-cache && rm -f /etc/nginx/conf.d/default.conf
 COPY gate/nginx.conf /etc/nginx/nginx.conf
